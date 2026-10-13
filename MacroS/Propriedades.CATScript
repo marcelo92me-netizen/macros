@@ -1,0 +1,122 @@
+Sub CATMain()
+    Dim oDoc As Document
+    On Error Resume Next
+    Set oDoc = CATIA.ActiveDocument
+    On Error GoTo 0
+    
+    ' Verifica se há um documento aberto
+    If oDoc Is Nothing Then
+        MsgBox "Abra um arquivo .CATPart ou .CATProduct primeiro!", vbExclamation, "Aviso"
+        Exit Sub
+    End If
+
+    ' ====================================================================
+    ' CENÁRIO A: Executado diretamente dentro de uma Peça avulsa (.CATPart)
+    ' ====================================================================
+    If TypeName(oDoc) = "PartDocument" Then
+        Dim oRootPartProd As Product
+        Set oRootPartProd = oDoc.Product
+        
+        ' Processa diretamente a peça avulsa
+        ProcessarComponenteComChecagem oRootPartProd, True
+        MsgBox "Processamento concluído na Peça!", vbInformation, "Sucesso"
+        Exit Sub
+    End If
+
+    ' ====================================================================
+    ' CENÁRIO B: Executado dentro de um Conjunto (.CATProduct)
+    ' ====================================================================
+    If TypeName(oDoc) = "ProductDocument" Then
+        Dim oRootProduct As Product
+        Set oRootProduct = oDoc.Product
+        
+        ' 1. Processa o Conjunto Pai (Root) de forma isolada
+        ProcessarComponenteComChecagem oRootProduct, False
+        
+        ' 2. Captura a coleção de componentes da árvore
+        Dim oComponents As Products
+        Set oComponents = oRootProduct.Products
+        
+        ' Verifica se o conjunto possui itens dentro antes de rodar o loop
+        If oComponents.Count > 0 Then
+            Dim i As Integer
+            Dim oSubProduct As Product
+            Dim oRefProduct As Product
+            Dim bEPart As Boolean
+            
+            ' Loop usando contador numérico indexado direto (Mais estável no CATScript)
+            For i = 1 To oComponents.Count
+                Set oSubProduct = oComponents.Item(i)
+                Set oRefProduct = oSubProduct.ReferenceProduct
+                
+                ' Descobre se o componente atual da árvore é uma Part (.CATPart) ou Sub-conjunto
+                On Error Resume Next
+                If InStr(UCase(oRefProduct.Parent.Name), ".CATPART") > 0 Then
+                    bEPart = True
+                Else
+                    bEPart = False
+                End If
+                On Error GoTo 0
+                
+                ' Processa o componente. A checagem de duplicidade ocorre lá dentro de forma segura.
+                ProcessarComponenteComChecagem oRefProduct, bEPart
+            Next
+        End If
+        
+        MsgBox "Varredura de árvore concluída com sucesso!", vbInformation, "Sucesso"
+    Else
+        MsgBox "Esta macro só funciona em arquivos do tipo Part (.CATPart) ou Product (.CATProduct).", vbCritical, "Erro"
+    End If
+End Sub
+
+' ====================================================================================
+' SUB-ROTINA PRINCIPAL: Checa parâmetro por parâmetro antes de criar para não travar
+' ====================================================================================
+Sub ProcessarComponenteComChecagem(ByRef targetProduct, ByVal ehPart)
+    Dim oProperties As UserRefProperties
+    Set oProperties = targetProduct.UserRefProperties
+    
+    ' Armazena os nomes das propriedades que precisam existir
+    Dim bTemItem, bTemReposicao, bTemTratSup, bTemTratTerm
+    Dim bTemDiam, bTemComp, bTemLarg, bTemAlt, bTemProc
+    
+    bTemItem = False: bTemReposicao = False: bTemTratSup = False: bTemTratTerm = False
+    bTemDiam = False: bTemComp = False: bTemLarg = False: bTemAlt = False: bTemProc = False
+    
+    ' Varre todos os parâmetros existentes na gaveta do componente para ver o que já existe
+    Dim j As Integer
+    If oProperties.Count > 0 Then
+        For j = 1 To oProperties.Count
+            Dim sParamName As String
+            sParamName = oProperties.Item(j).Name
+            
+            ' O CATIA retorna o nome completo (ex: "Part1\Properties\ITEM"). Filtramos apenas o final.
+            If InStr(UCase(sParamName), "\ITEM") > 0 Then bTemItem = True
+            If InStr(UCase(sParamName), "\REPOSICAO") > 0 Then bTemReposicao = True
+            If InStr(UCase(sParamName), "\TRAT_SUP") > 0 Then bTemTratSup = True
+            If InStr(UCase(sParamName), "\TRAT_TERM") > 0 Then bTemTratTerm = True
+            If InStr(UCase(sParamName), "\DIAM_ESP") > 0 Then bTemDiam = True
+            If InStr(UCase(sParamName), "\COMP") > 0 Then bTemComp = True
+            If InStr(UCase(sParamName), "\LARG") > 0 Then bTemLarg = True
+            If InStr(UCase(sParamName), "\ALT") > 0 Then bTemAlt = True
+            If InStr(UCase(sParamName), "\PROCESSO") > 0 Then bTemProc = True
+        Next
+    End If
+    
+    ' Cria APENAS as propriedades que não foram encontradas na varredura acima
+    On Error Resume Next
+    If bTemItem = False Then oProperties.CreateString "ITEM", "Item"
+    If bTemReposicao = False Then oProperties.CreateString "REPOSICAO", "NÃO"
+    If bTemTratSup = False Then oProperties.CreateString "TRAT_SUP", "N/A"
+    If bTemTratTerm = False Then oProperties.CreateString "TRAT_TERM", "N/A"
+
+    ' Propriedades exclusivas para Peças (.CATPart)
+    If ehPart = True Then
+        If bTemDiam = False Then oProperties.CreateString "DIAM_ESP", "-"
+        If bTemComp = False Then oProperties.CreateString "COMP", "-"
+        If bTemLarg = False Then oProperties.CreateString "LARG", "-"
+        If bTemAlt = False Then oProperties.CreateString "ALT", "-"
+        If bTemProc = False Then oProperties.CreateString "PROCESSO", "-"
+    End If
+    On Error GoTo 0
+End Sub

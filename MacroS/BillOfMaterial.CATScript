@@ -1,0 +1,64 @@
+Sub CATMain()
+
+    ' 1. Verifica se há um documento de montagem (Product) ativo
+    Dim oDoc As Document
+    On Error Resume Next
+    Set oDoc = CATIA.ActiveDocument
+    If Err.Number <> 0 Then
+        MsgBox "Por favor, abra um arquivo .CATProduct primeiro.", vbCritical, "Erro"
+        Exit Sub
+    End If
+    On Error GoTo 0
+    
+    If TypeName(oDoc) <> "ProductDocument" Then
+        MsgBox "O documento ativo precisa ser um .CATProduct.", vbCritical, "Erro"
+        Exit Sub
+    End If
+
+    Dim oRootProduct As Product
+    Set oRootProduct = oDoc.Product
+
+    ' 2. Define o caminho final na Área de Trabalho (Desktop)
+    Dim sDesktopPath As String
+    sDesktopPath = CATIA.SystemService.Environ("USERPROFILE") & "\Desktop\"
+    
+    Dim sFinalHtml As String
+    sFinalHtml = sDesktopPath & "BOM_" & oRootProduct.PartNumber & ".html"
+
+    ' 3. Obtém o componente de Bill of Material nativo
+    Dim oBOMConverter As AssemblyConvertor
+    Set oBOMConverter = oRootProduct.GetItem("BillOfMaterial")
+    
+    ' 4. Configura as colunas desejadas (Matriz Dinâmica)
+    Dim oPrintFormat(13)    
+    oPrintFormat(0) = "Part Number"
+    oPrintFormat(1) = "Product Description"
+    oPrintFormat(2) = "Nomenclature"
+    oPrintFormat(3) = "Quantity"
+    oPrintFormat(4) = "Definition"
+    oPrintFormat(5) = "ITEM"
+    oPrintFormat(6) = "REPOSICAO"
+    oPrintFormat(7) = "TRAT_SUP"
+    oPrintFormat(8) = "TRAT_TERM"
+    oPrintFormat(9) = "DIAM_ESP"
+    oPrintFormat(10) = "COMP"
+    oPrintFormat(11) = "LARG"
+    oPrintFormat(12) = "ALT"
+    oPrintFormat(13) = "PROCESSO"
+    
+    ' Define o formato para a listagem estruturada
+    oBOMConverter.SetCurrentFormat oPrintFormat
+    oBOMConverter.SetSecondaryFormat oPrintFormat
+    
+    ' 5. Exporta DIRETAMENTE para HTML no formato original do CATIA
+    On Error Resume Next
+    oBOMConverter.Print "HTML", sFinalHtml, oRootProduct
+    
+    If Err.Number <> 0 Then
+        MsgBox "Erro ao exportar o HTML nativo: " & Err.Description, vbCritical, "Erro"
+    Else
+        MsgBox "BOM exportada com sucesso no formato nativo do CATIA!" & vbCrLf & "Arquivo: " & sFinalHtml, vbInformation, "Sucesso"
+    End If
+    On Error GoTo 0
+
+End Sub
