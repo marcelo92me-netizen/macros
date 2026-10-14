@@ -176,72 +176,71 @@ Sub CATMain()
     arquivo.Close
 
     '------------------------------------------
-    ' 7. Criar ou atualizar ITEM
-    '------------------------------------------
+' 7. Obter as propriedades do produto correto
+'------------------------------------------
 
-    Set props = targetProduct.UserRefProperties
+Err.Clear
+Set props = Nothing
 
-    Set param = Nothing
+If TypeName(doc) = "ProductDocument" Then
+    Set refProduct = targetProduct.ReferenceProduct
+    Set props = refProduct.UserRefProperties
+Else
+    Set props = doc.Product.UserRefProperties
+End If
+
+If Err.Number <> 0 Or props Is Nothing Then
+    MsgBox "Nao foi possivel acessar as propriedades " & _
+           "do produto de destino." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
+
+'------------------------------------------
+' 8. Criar ou atualizar ITEM
+'------------------------------------------
+
+Err.Clear
+Set param = Nothing
+Set param = props.Item("ITEM")
+
+If Err.Number <> 0 Or param Is Nothing Then
     Err.Clear
+    Set param = props.CreateString("ITEM", valorItem)
+Else
+    param.Value = valorItem
+End If
 
-    Set param = props.Item("ITEM")
+If Err.Number <> 0 Or param Is Nothing Then
+    MsgBox "Falha ao criar ou atualizar ITEM." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
 
-    If Err.Number <> 0 Or param Is Nothing Then
-        Err.Clear
-        Set param = props.CreateString("ITEM", valorItem)
-    Else
-        param.Value = valorItem
-    End If
+'------------------------------------------
+' 9. Criar ou atualizar DESENHO
+'------------------------------------------
 
-    If Err.Number <> 0 Then
-        erro = Err.Description
-        MsgBox "Erro ao gravar ITEM: " & erro, vbCritical
-        Exit Sub
-    End If
+Err.Clear
+Set param = Nothing
+Set param = props.Item("DESENHO")
 
-    '------------------------------------------
-    ' 8. Criar ou atualizar DESENHO
-    '------------------------------------------
-
-    Set param = Nothing
+If Err.Number <> 0 Or param Is Nothing Then
     Err.Clear
+    Set param = props.CreateString("DESENHO", valorDesenho)
+Else
+    param.Value = valorDesenho
+End If
 
-    Set param = props.Item("DESENHO")
+If Err.Number <> 0 Or param Is Nothing Then
+    MsgBox "Falha ao criar ou atualizar DESENHO." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
 
-    If Err.Number <> 0 Or param Is Nothing Then
-        Err.Clear
-        Set param = props.CreateString("DESENHO", valorDesenho)
-    Else
-        param.Value = valorDesenho
-    End If
-
-    If Err.Number <> 0 Then
-        erro = Err.Description
-        MsgBox "Erro ao gravar DESENHO: " & erro, vbCritical
-        Exit Sub
-    End If
-
-    '------------------------------------------
-    ' 9. Atualizar o documento
-    '------------------------------------------
-
-    If TypeName(doc) = "PartDocument" Then
-        doc.Part.Update
-    Else
-        doc.Product.Update
-    End If
-
-    If Err.Number <> 0 Then
-        MsgBox "As propriedades foram alteradas, mas houve " & _
-               "um erro ao atualizar o documento:" & vbCrLf & _
-               Err.Description, vbExclamation
-        Exit Sub
-    End If
-
-    MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
-           "ITEM: " & valorItem & vbCrLf & _
-           "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
-           "Salve o documento no CATIA para manter as alteracoes.", _
-           vbInformation
-
+MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
+       "ITEM: " & valorItem & vbCrLf & _
+       "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
+       "Salve o documento no CATIA.", vbInformation
+       
 End Sub
