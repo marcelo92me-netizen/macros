@@ -1,0 +1,103 @@
+Language="VBSCRIPT"
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim doc
+    Dim produto
+    Dim propriedades
+    Dim itemParam
+    Dim desenhoParam
+    Dim valorItem
+    Dim valorDesenho
+
+    ' Verifica se existe documento aberto
+    If CATIA.Documents.Count = 0 Then
+        MsgBox "Abra uma peça antes de executar a macro."
+        Exit Sub
+    End If
+
+    Set doc = CATIA.ActiveDocument
+
+    ' Confirma que o documento e uma peca
+    If TypeName(doc) <> "PartDocument" Then
+        MsgBox "O documento ativo deve ser um CATPart."
+        Exit Sub
+    End If
+
+    ' Solicita os valores ao usuario
+    valorItem = InputBox( _
+        "Digite o codigo do ITEM:", _
+        "Propriedades da peca")
+
+    ' Cancelar retorna string vazia
+    If valorItem = "" Then
+        MsgBox "Operacao cancelada."
+        Exit Sub
+    End If
+
+    valorDesenho = InputBox( _
+        "Digite o numero do DESENHO:", _
+        "Propriedades da peca")
+
+    If valorDesenho = "" Then
+        MsgBox "Operacao cancelada."
+        Exit Sub
+    End If
+
+    ' Acessa as propriedades do produto
+    Set produto = doc.Product
+    Set propriedades = produto.UserRefProperties
+
+    ' Localiza ou cria a propriedade ITEM
+    Set itemParam = Nothing
+    Err.Clear
+    Set itemParam = propriedades.Item("ITEM")
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        Set itemParam = propriedades.CreateString( _
+            "ITEM", valorItem)
+    Else
+        itemParam.Value = valorItem
+    End If
+
+    If Err.Number <> 0 Then
+        MsgBox "Erro ao gravar ITEM: " & Err.Description
+        Exit Sub
+    End If
+
+    ' Localiza ou cria a propriedade DESENHO
+    Set desenhoParam = Nothing
+    Err.Clear
+    Set desenhoParam = propriedades.Item("DESENHO")
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        Set desenhoParam = propriedades.CreateString( _
+            "DESENHO", valorDesenho)
+    Else
+        desenhoParam.Value = valorDesenho
+    End If
+
+    If Err.Number <> 0 Then
+        MsgBox "Erro ao gravar DESENHO: " & Err.Description
+        Exit Sub
+    End If
+
+    ' Atualiza a peca
+    Err.Clear
+    doc.Part.Update
+
+    If Err.Number <> 0 Then
+        MsgBox "As propriedades foram processadas, " & _
+               "mas ocorreu um erro na atualizacao."
+        Exit Sub
+    End If
+
+    MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
+           "ITEM: " & valorItem & vbCrLf & _
+           "DESENHO: " & valorDesenho
+
+End Sub
