@@ -1,0 +1,163 @@
+
+<html>
+<head>
+<title>Propriedades da peca</title>
+
+<HTA:APPLICATION
+    ID="Janela"
+    APPLICATIONNAME="PropriedadesCATIA"
+    BORDER="thin"
+    CAPTION="yes"
+    SHOWINTASKBAR="no"
+    SINGLEINSTANCE="yes"
+    SYSMENU="yes"
+    WINDOWSTATE="normal"
+    SCROLL="no"
+/>
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #D6D6D6;
+        margin: 0;
+        padding: 20px;
+        color: #222222;
+    }
+
+    .campo {
+        margin-bottom: 16px;
+    }
+
+    label {
+        display: block;
+        font-size: 13px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    input {
+        width: 100%;
+        height: 27px;
+        box-sizing: border-box;
+        border: 1px solid #888888;
+        background-color: #FFFFFF;
+        padding: 4px 6px;
+        font-size: 13px;
+    }
+
+    .botoes {
+        text-align: right;
+        margin-top: 22px;
+    }
+
+    button {
+        width: 90px;
+        height: 30px;
+        margin-left: 8px;
+        font-size: 12px;
+    }
+</style>
+
+<script language="VBScript">
+
+Option Explicit
+
+Dim resultadoGravado
+resultadoGravado = False
+
+Sub Window_OnLoad
+
+    window.resizeTo 420, 285
+
+    document.getElementById("txtItem").focus
+
+End Sub
+
+Sub GravarResultado(status)
+
+    Dim fso
+    Dim arquivo
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    Set arquivo = fso.CreateTextFile( _
+        "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt", True, True)
+
+    arquivo.WriteLine status
+
+    If status = "OK" Then
+        arquivo.WriteLine document.getElementById("txtItem").value
+        arquivo.WriteLine document.getElementById("txtDesenho").value
+    End If
+
+    arquivo.Close
+
+    resultadoGravado = True
+
+End Sub
+
+Sub btnOK_OnClick
+
+    Dim item
+    Dim desenho
+
+    item = Trim(document.getElementById("txtItem").value)
+    desenho = Trim(document.getElementById("txtDesenho").value)
+
+    If item = "" Then
+        MsgBox "Preencha o campo ITEM.", vbExclamation, "Atencao"
+        document.getElementById("txtItem").focus
+        Exit Sub
+    End If
+
+    If desenho = "" Then
+        MsgBox "Preencha o campo DESENHO.", vbExclamation, "Atencao"
+        document.getElementById("txtDesenho").focus
+        Exit Sub
+    End If
+
+    GravarResultado "OK"
+
+    window.close
+
+End Sub
+
+Sub btnCancelar_OnClick
+
+    GravarResultado "CANCELADO"
+
+    window.close
+
+End Sub
+
+Sub Window_OnUnload
+
+    If Not resultadoGravado Then
+        GravarResultado "CANCELADO"
+    End If
+
+End Sub
+
+</script>
+</head>
+
+<body>
+
+    <div class="campo">
+        <label for="txtItem">ITEM</label>
+        <input type="text" id="txtItem" />
+    </div>
+
+    <div class="campo">
+        <label for="txtDesenho">DESENHO</label>
+        <input type="text" id="txtDesenho" />
+    </div>
+
+    <div class="botoes">
+        <button id="btnOK" onclick="btnOK_OnClick">OK</button>
+        <button id="btnCancelar"
+                onclick="btnCancelar_OnClick">Cancelar</button>
+    </div>
+
+</body>
+</html>
