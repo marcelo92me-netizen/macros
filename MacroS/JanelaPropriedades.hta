@@ -112,13 +112,9 @@ Sub Window_OnLoad
 
 End Sub
 
-Sub Window_OnKeyDown
-
-    If window.event.keyCode = 27 Then
-        GravarResultado "CANCELADO"
-        window.close
-    End If
-
+Sub FecharPorEsc
+    GravarResultado "CANCELADO"
+    window.close
 End Sub
 
 Sub CarregarValoresIniciais
@@ -224,6 +220,14 @@ Sub btnCancelar_OnClick
 
 End Sub
 
+Sub InterceptaTecla
+    ' O código 27 representa a tecla ESC
+    If window.event.keyCode = 27 Then
+        GravarResultado "CANCELADO"
+        window.close
+    End If
+End Sub
+
 Sub Window_OnUnload
 
     If Not resultadoGravado Then
@@ -235,7 +239,7 @@ End Sub
 </script>
 </head>
 
-<body>
+<body onkeypress="InterceptaTecla">
 
     <div class="titulo">Propriedades nativas do CATIA</div>
 
