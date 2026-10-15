@@ -1,338 +1,336 @@
 <html>
-<head>
-<title>Propriedades da peca</title>
-
-<HTA:APPLICATION
-    ID="Janela"
-    APPLICATIONNAME="PropriedadesCATIA"
-    BORDER="thin"
-    CAPTION="yes"
-    SHOWINTASKBAR="no"
-    SINGLEINSTANCE="yes"
-    SYSMENU="yes"
-    WINDOWSTATE="normal"
-    SCROLL="no"
-/>
-
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        background-color: #d6d6d6;
-        margin: 0;
-        padding: 12px 16px;
-        color: #222222;
-    }
-
-    .titulo {
-        font-size: 12px;
-        font-weight: bold;
-        color: #444444;
-        border-bottom: 1px solid #AAAAAA;
-        padding-bottom: 3px;
-        margin: 3px 0 7px 0;
-    }
-
-    table.grade {
-        width: 90%;
-        border-collapse: collapse;
-    }
-
-    table.grade td {
-        width: 50%;
-        padding: 0 8px 6px 0;
-        vertical-align: top;
-    }
-
-    label {
-        display: block;
-        font-size: 12px;
-        font-weight: bold;
-        margin-bottom: 2px;
-    }
-
-    input {
-        width: 100%;
-        height: 23px;
-        box-sizing: border-box;
-        border: 1px solid #888888;
-        background-color: #FFFFFF;
-        padding: 3px 6px;
-        font-size: 12px;
-    }
-
-    .botoes {
-        text-align: right;
-        margin-top: 8px;
-    }
-
-    button {
-        width: 90px;
-        height: 30px;
-        margin-left: 8px;
-        font-size: 12px;
-    }
-</style>
-
-<script language="VBScript">
-
-Option Explicit
-
-Const CAMINHO_RESULTADO = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt"
-
-Dim resultadoGravado
-Dim chaves
-
-resultadoGravado = False
-
-' Ordem EXATA das propriedades (chave usada na comunicacao com a macro).
-chaves = Array( _
-    "PRODUCT_DESCRIPTION", _
-    "NOMENCLATURE", _
-    "DEFINITION", _
-    "ITEM", _
-    "REPOSICAO", _
-    "TRAT_TERM", _
-    "TRAT_SUP", _
-    "DIAM_ESP", _
-    "COMP", _
-    "LARG", _
-    "ALT", _
-    "PROCESSO", _
-    "PDF", _
-    "DXF", _
-    "STEP")
+    <head>
+        <title>Propriedades da peca</title>
+
+        <HTA:APPLICATION
+            ID="Janela"
+            APPLICATIONNAME="PropriedadesCATIA"
+            BORDER="thin"
+            CAPTION="yes"
+            SHOWINTASKBAR="no"
+            SINGLEINSTANCE="yes"
+            SYSMENU="yes"
+            WINDOWSTATE="normal"
+            SCROLL="no"
+        />
+
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #d6d6d6;
+                margin: 0;
+                padding: 12px 16px;
+                color: #222222;
+            }
+
+            .titulo {
+                font-size: 12px;
+                font-weight: bold;
+                color: #444444;
+                border-bottom: 1px solid #AAAAAA;
+                padding-bottom: 3px;
+                margin: 3px 0 7px 0;
+            }
+
+            table.grade {
+                width: 90%;
+                border-collapse: collapse;
+            }
+
+            table.grade td {
+                width: 50%;
+                padding: 0 8px 6px 0;
+                vertical-align: top;
+            }
+
+            label {
+                display: block;
+                font-size: 12px;
+                font-weight: bold;
+                margin-bottom: 2px;
+            }
+
+            input {
+                width: 100%;
+                height: 23px;
+                box-sizing: border-box;
+                border: 1px solid #888888;
+                background-color: #FFFFFF;
+                padding: 3px 6px;
+                font-size: 12px;
+            }
+
+            .botoes {
+                text-align: right;
+                margin-top: 8px;
+            }
+
+            button {
+                width: 90px;
+                height: 30px;
+                margin-left: 8px;
+                font-size: 12px;
+            }
+        </style>
+
+        <script language="VBScript">
+
+            Option Explicit
+
+            Const CAMINHO_RESULTADO = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt"
+
+            Dim resultadoGravado
+            Dim chaves
+
+            resultadoGravado = False
+
+            ' Ordem EXATA das propriedades (chave usada na comunicacao com a macro).
+            chaves = Array( _
+                "PRODUCT_DESCRIPTION", _
+                "NOMENCLATURE", _
+                "DEFINITION", _
+                "ITEM", _
+                "REPOSICAO", _
+                "TRAT_TERM", _
+                "TRAT_SUP", _
+                "DIAM_ESP", _
+                "COMP", _
+                "LARG", _
+                "ALT", _
+                "PROCESSO", _
+                "PDF", _
+                "DXF", _
+                "STEP")
 
-Sub Window_OnLoad
+            Sub Window_OnLoad
 
-    window.resizeTo 760, 740
+                window.resizeTo 760, 740
 
-    CarregarValoresIniciais
+                CarregarValoresIniciais
 
-    document.getElementById("txt_PRODUCT_DESCRIPTION").focus
+                document.getElementById("txt_PRODUCT_DESCRIPTION").focus
 
-End Sub
+            End Sub
 
-Sub FecharPorEsc
-    GravarResultado "CANCELADO"
-    window.close
-End Sub
+            Sub FecharPorEsc
+                GravarResultado "CANCELADO"
+                window.close
+            End Sub
 
-Sub CarregarValoresIniciais
+            Sub CarregarValoresIniciais
 
-    Dim fso, arquivo, linha, pos, chave, valor, status, campo
+                Dim fso, arquivo, linha, pos, chave, valor, status, campo
 
-    On Error Resume Next
-    Set fso = CreateObject("Scripting.FileSystemObject")
+                On Error Resume Next
+                Set fso = CreateObject("Scripting.FileSystemObject")
 
-    If Not fso.FileExists(CAMINHO_RESULTADO) Then Exit Sub
+                If Not fso.FileExists(CAMINHO_RESULTADO) Then Exit Sub
 
-    Set arquivo = fso.OpenTextFile(CAMINHO_RESULTADO, 1, False, -1)
-    If Err.Number <> 0 Then Exit Sub
+                Set arquivo = fso.OpenTextFile(CAMINHO_RESULTADO, 1, False, -1)
+                If Err.Number <> 0 Then Exit Sub
 
-    If arquivo.AtEndOfStream Then
-        arquivo.Close
-        Exit Sub
-    End If
+                If arquivo.AtEndOfStream Then
+                    arquivo.Close
+                    Exit Sub
+                End If
 
-    status = Trim(arquivo.ReadLine)
-    If status <> "INICIAL" Then
-        arquivo.Close
-        Exit Sub
-    End If
+                status = Trim(arquivo.ReadLine)
+                If status <> "INICIAL" Then
+                    arquivo.Close
+                    Exit Sub
+                End If
 
-    Do While Not arquivo.AtEndOfStream
-        linha = arquivo.ReadLine
-        pos = InStr(linha, "=")
+                Do While Not arquivo.AtEndOfStream
+                    linha = arquivo.ReadLine
+                    pos = InStr(linha, "=")
 
-        If pos > 1 Then
-            chave = Trim(Left(linha, pos - 1))
-            valor = Mid(linha, pos + 1)
-            Set campo = Nothing
-            Set campo = document.getElementById("txt_" & chave)
-            If Not campo Is Nothing Then
-                campo.value = valor
-            End If
-        End If
-    Loop
+                    If pos > 1 Then
+                        chave = Trim(Left(linha, pos - 1))
+                        valor = Mid(linha, pos + 1)
+                        Set campo = Nothing
+                        Set campo = document.getElementById("txt_" & chave)
+                        If Not campo Is Nothing Then
+                            campo.value = valor
+                        End If
+                    End If
+                Loop
 
-    arquivo.Close
-    Err.Clear
+                arquivo.Close
+                Err.Clear
 
-End Sub
+            End Sub
 
-Function Valor(chave)
+            Function Valor(chave)
 
-    Dim campo
+                Dim campo
 
-    Set campo = document.getElementById("txt_" & chave)
+                Set campo = document.getElementById("txt_" & chave)
 
-    If campo Is Nothing Then
-        Valor = ""
-    Else
-        Valor = Trim(campo.value)
-    End If
+                If campo Is Nothing Then
+                    Valor = ""
+                Else
+                    Valor = Trim(campo.value)
+                End If
 
-End Function
+            End Function
 
-Sub GravarResultado(status)
+            Sub GravarResultado(status)
 
-    Dim fso
-    Dim arquivo
-    Dim i
+                Dim fso
+                Dim arquivo
+                Dim i
 
-    Set fso = CreateObject("Scripting.FileSystemObject")
+                Set fso = CreateObject("Scripting.FileSystemObject")
 
-    Set arquivo = fso.CreateTextFile(CAMINHO_RESULTADO, True, True)
+                Set arquivo = fso.CreateTextFile(CAMINHO_RESULTADO, True, True)
 
-    arquivo.WriteLine status
+                arquivo.WriteLine status
 
-    If status = "OK" Then
-        For i = 0 To UBound(chaves)
-            arquivo.WriteLine chaves(i) & "=" & Valor(chaves(i))
-        Next
-    End If
+                If status = "OK" Then
+                    For i = 0 To UBound(chaves)
+                        arquivo.WriteLine chaves(i) & "=" & Valor(chaves(i))
+                    Next
+                End If
 
-    arquivo.Close
+                arquivo.Close
 
-    resultadoGravado = True
+                resultadoGravado = True
 
-End Sub
-
-Sub btnOK_OnClick
-
-    If Valor("ITEM") = "" Then
-        MsgBox "Preencha o campo ITEM.", vbExclamation, "Atencao"
-        document.getElementById("txt_ITEM").focus
-        Exit Sub
-    End If
-
-    GravarResultado "OK"
-
-    window.close
-
-End Sub
-
-Sub btnCancelar_OnClick
-
-    GravarResultado "CANCELADO"
-
-    window.close
-
-End Sub
-
-Sub InterceptaTecla
-    ' O código 27 representa a tecla ESC
-    If window.event.keyCode = 27 Then
-        GravarResultado "CANCELADO"
-        window.close
-    End If
-End Sub
-
-Sub Window_OnUnload
-
-    If Not resultadoGravado Then
-        GravarResultado "CANCELADO"
-    End If
-
-End Sub
-
-</script>
-</head>
-
-<body onkeypress="InterceptaTecla">
-
-    <div class="titulo">Propriedades nativas do CATIA</div>
-
-    <table class="grade">
-        <tr>
-            <td>
-                <label for="txt_PRODUCT_DESCRIPTION">Product Description</label>
-                <input type="text" id="txt_PRODUCT_DESCRIPTION" />
-            </td>
-            <td>
-                <label for="txt_NOMENCLATURE">Nomenclature</label>
-                <input type="text" id="txt_NOMENCLATURE" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_DEFINITION">Definition</label>
-                <input type="text" id="txt_DEFINITION" />
-            </td>
-            <td></td>
-        </tr>
-    </table>
-
-    <div class="titulo">Propriedades do documento</div>
-
-    <table class="grade">
-        <tr>
-            <td>
-                <label for="txt_ITEM">ITEM</label>
-                <input type="text" id="txt_ITEM" />
-            </td>
-            <td>
-                <label for="txt_REPOSICAO">REPOSICAO</label>
-                <input type="text" id="txt_REPOSICAO" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_TRAT_TERM">TRAT_TERM</label>
-                <input type="text" id="txt_TRAT_TERM" />
-            </td>
-            <td>
-                <label for="txt_TRAT_SUP">TRAT_SUP</label>
-                <input type="text" id="txt_TRAT_SUP" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_DIAM_ESP">DIAM_ESP</label>
-                <input type="text" id="txt_DIAM_ESP" />
-            </td>
-            <td>
-                <label for="txt_COMP">COMP</label>
-                <input type="text" id="txt_COMP" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_LARG">LARG</label>
-                <input type="text" id="txt_LARG" />
-            </td>
-            <td>
-                <label for="txt_ALT">ALT</label>
-                <input type="text" id="txt_ALT" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_PROCESSO">PROCESSO</label>
-                <input type="text" id="txt_PROCESSO" />
-            </td>
-            <td>
-                <label for="txt_PDF">PDF</label>
-                <input type="text" id="txt_PDF" />
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <label for="txt_DXF">DXF</label>
-                <input type="text" id="txt_DXF" />
-            </td>
-            <td>
-                <label for="txt_STEP">STEP</label>
-                <input type="text" id="txt_STEP" />
-            </td>
-        </tr>
-    </table>
-
-    <div class="botoes">
-        <button id="btnOK" onclick="btnOK_OnClick">OK</button>
-        <button id="btnCancelar"
-                onclick="btnCancelar_OnClick">Cancelar</button>
-    </div>
-
-</body>
+            End Sub
+
+            Sub btnOK_OnClick
+
+                If Valor("ITEM") = "" Then
+                    MsgBox "Preencha o campo ITEM.", vbExclamation, "Atencao"
+                    document.getElementById("txt_ITEM").focus
+                    Exit Sub
+                End If
+
+                GravarResultado "OK"
+
+                window.close
+
+            End Sub
+
+            Sub btnCancelar_OnClick
+
+                GravarResultado "CANCELADO"
+
+                window.close
+
+            End Sub
+
+            Sub InterceptaTecla
+                ' O código 27 representa a tecla ESC
+                If window.event.keyCode = 27 Then
+                    GravarResultado "CANCELADO"
+                    window.close
+                End If
+            End Sub
+
+            Sub Window_OnUnload
+
+                If Not resultadoGravado Then
+                    GravarResultado "CANCELADO"
+                End If
+
+            End Sub
+        </script>
+    </head>
+
+    <body onkeypress="InterceptaTecla">
+
+        <div class="titulo">Propriedades nativas do CATIA</div>
+
+        <table class="grade">
+            <tr>
+                <td>
+                    <label for="txt_PRODUCT_DESCRIPTION">Product Description</label>
+                    <input type="text" id="txt_PRODUCT_DESCRIPTION" />
+                </td>
+                <td>
+                    <label for="txt_NOMENCLATURE">Nomenclature</label>
+                    <input type="text" id="txt_NOMENCLATURE" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_DEFINITION">Definition</label>
+                    <input type="text" id="txt_DEFINITION" />
+                </td>
+                <td></td>
+            </tr>
+        </table>
+
+        <div class="titulo">Propriedades do documento</div>
+
+        <table class="grade">
+            <tr>
+                <td>
+                    <label for="txt_ITEM">ITEM</label>
+                    <input type="text" id="txt_ITEM" />
+                </td>
+                <td>
+                    <label for="txt_REPOSICAO">REPOSICAO</label>
+                    <input type="text" id="txt_REPOSICAO" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_TRAT_TERM">TRAT_TERM</label>
+                    <input type="text" id="txt_TRAT_TERM" />
+                </td>
+                <td>
+                    <label for="txt_TRAT_SUP">TRAT_SUP</label>
+                    <input type="text" id="txt_TRAT_SUP" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_DIAM_ESP">DIAM_ESP</label>
+                    <input type="text" id="txt_DIAM_ESP" />
+                </td>
+                <td>
+                    <label for="txt_COMP">COMP</label>
+                    <input type="text" id="txt_COMP" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_LARG">LARG</label>
+                    <input type="text" id="txt_LARG" />
+                </td>
+                <td>
+                    <label for="txt_ALT">ALT</label>
+                    <input type="text" id="txt_ALT" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_PROCESSO">PROCESSO</label>
+                    <input type="text" id="txt_PROCESSO" />
+                </td>
+                <td>
+                    <label for="txt_PDF">PDF</label>
+                    <input type="text" id="txt_PDF" />
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="txt_DXF">DXF</label>
+                    <input type="text" id="txt_DXF" />
+                </td>
+                <td>
+                    <label for="txt_STEP">STEP</label>
+                    <input type="text" id="txt_STEP" />
+                </td>
+            </tr>
+        </table>
+
+        <div class="botoes">
+            <button id="btnOK" onclick="btnOK_OnClick">OK</button>
+            <button id="btnCancelar"
+                    onclick="btnCancelar_OnClick">Cancelar</button>
+        </div>
+    </body>
 </html>
