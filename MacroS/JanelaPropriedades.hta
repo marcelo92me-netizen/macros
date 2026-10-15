@@ -112,6 +112,15 @@ Sub Window_OnLoad
 
 End Sub
 
+Sub Window_OnKeyDown
+
+    If window.event.keyCode = 27 Then
+        GravarResultado "CANCELADO"
+        window.close
+    End If
+
+End Sub
+
 Sub CarregarValoresIniciais
 
     Dim fso, arquivo, linha, pos, chave, valor, status, campo
