@@ -1,0 +1,246 @@
+Option Explicit
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim doc
+    Dim sel
+    Dim selectedObj
+    Dim targetProduct
+    Dim refProduct
+    Dim refParent
+    Dim props
+    Dim param
+    Dim fso
+    Dim shell
+    Dim arquivo
+    Dim caminhoJanela
+    Dim caminhoResultado
+    Dim caminhoMSHTA
+    Dim comando
+    Dim status
+    Dim valorItem
+    Dim valorDesenho
+    Dim erro
+
+    caminhoJanela = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\JanelaPropriedades.hta"
+    caminhoResultado = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt"
+    caminhoMSHTA = "C:\Windows\System32\mshta.exe"
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    '------------------------------------------
+    ' 1. Verificar os arquivos necessarios
+    '------------------------------------------
+
+    If Not fso.FileExists(caminhoJanela) Then
+        MsgBox "Arquivo da janela nao encontrado:" & vbCrLf & _
+               caminhoJanela, vbCritical
+        Exit Sub
+    End If
+
+    If Not fso.FileExists(caminhoMSHTA) Then
+        MsgBox "O executavel MSHTA nao foi encontrado." & vbCrLf & _
+               "Verifique a instalacao ou as politicas do Windows.", _
+               vbCritical
+        Exit Sub
+    End If
+
+    '------------------------------------------
+    ' 2. Verificar documento ativo
+    '------------------------------------------
+
+    If CATIA.Documents.Count = 0 Then
+        MsgBox "Abra um CATPart ou CATProduct.", vbExclamation
+        Exit Sub
+    End If
+
+    Set doc = CATIA.ActiveDocument
+
+    '------------------------------------------
+    ' 3. Identificar a peca de destino
+    '------------------------------------------
+
+    If TypeName(doc) = "PartDocument" Then
+
+        Set targetProduct = doc.Product
+
+    ElseIf TypeName(doc) = "ProductDocument" Then
+
+        Set sel = doc.Selection
+
+        If sel.Count2 = 0 Then
+            MsgBox "Selecione um componente Part na arvore.", _
+                   vbExclamation
+            Exit Sub
+        End If
+
+        Set selectedObj = sel.Item2(1).Value
+
+        If TypeName(selectedObj) <> "Product" Then
+            MsgBox "O item selecionado nao e um componente Product.", _
+                   vbExclamation
+            Exit Sub
+        End If
+
+        Set targetProduct = selectedObj
+
+        Set refProduct = targetProduct.ReferenceProduct
+        Set refParent = refProduct.Parent
+
+        If TypeName(refParent) <> "PartDocument" Then
+            MsgBox "O componente selecionado nao referencia " & _
+                   "diretamente um CATPart." & vbCrLf & _
+                   "Selecione uma peca na arvore.", vbExclamation
+            Exit Sub
+        End If
+
+    Else
+
+        MsgBox "Tipo de documento nao suportado.", vbExclamation
+        Exit Sub
+
+    End If
+
+    '------------------------------------------
+    ' 4. Preparar arquivo de resultado
+    '------------------------------------------
+
+    Set arquivo = fso.CreateTextFile( _
+        caminhoResultado, True, True)
+
+    arquivo.WriteLine "CANCELADO"
+    arquivo.Close
+
+    '------------------------------------------
+    ' 5. Abrir a janela e aguardar
+    '------------------------------------------
+
+    Set shell = CreateObject("WScript.Shell")
+
+    comando = """" & caminhoMSHTA & """ """ & _
+              caminhoJanela & """"
+
+    Err.Clear
+
+    shell.Run comando, 1, True
+
+    If Err.Number <> 0 Then
+        MsgBox "Nao foi possivel abrir a janela:" & vbCrLf & _
+               Err.Description, vbCritical
+        Exit Sub
+    End If
+
+    '------------------------------------------
+    ' 6. Ler os valores preenchidos
+    '------------------------------------------
+
+    If Not fso.FileExists(caminhoResultado) Then
+        MsgBox "O arquivo de resultado nao foi criado.", vbCritical
+        Exit Sub
+    End If
+
+    Set arquivo = fso.OpenTextFile( _
+        caminhoResultado, 1, False, -1)
+
+    If arquivo.AtEndOfStream Then
+        arquivo.Close
+        MsgBox "A janela nao retornou dados.", vbExclamation
+        Exit Sub
+    End If
+
+    status = arquivo.ReadLine
+
+    If status <> "OK" Then
+        arquivo.Close
+        Exit Sub
+    End If
+
+    If arquivo.AtEndOfStream Then
+        arquivo.Close
+        MsgBox "Valor ITEM nao encontrado.", vbCritical
+        Exit Sub
+    End If
+
+    valorItem = arquivo.ReadLine
+
+    If arquivo.AtEndOfStream Then
+        arquivo.Close
+        MsgBox "Valor DESENHO nao encontrado.", vbCritical
+        Exit Sub
+    End If
+
+    valorDesenho = arquivo.ReadLine
+
+    arquivo.Close
+
+    '------------------------------------------
+' 7. Obter as propriedades do produto correto
+'------------------------------------------
+
+Err.Clear
+Set props = Nothing
+
+If TypeName(doc) = "ProductDocument" Then
+    Set refProduct = targetProduct.ReferenceProduct
+    Set props = refProduct.UserRefProperties
+Else
+    Set props = doc.Product.UserRefProperties
+End If
+
+If Err.Number <> 0 Or props Is Nothing Then
+    MsgBox "Nao foi possivel acessar as propriedades " & _
+           "do produto de destino." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
+
+'------------------------------------------
+' 8. Criar ou atualizar ITEM
+'------------------------------------------
+
+Err.Clear
+Set param = Nothing
+Set param = props.Item("ITEM")
+
+If Err.Number <> 0 Or param Is Nothing Then
+    Err.Clear
+    Set param = props.CreateString("ITEM", valorItem)
+Else
+    param.Value = valorItem
+End If
+
+If Err.Number <> 0 Or param Is Nothing Then
+    MsgBox "Falha ao criar ou atualizar ITEM." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
+
+'------------------------------------------
+' 9. Criar ou atualizar DESENHO
+'------------------------------------------
+
+Err.Clear
+Set param = Nothing
+Set param = props.Item("DESENHO")
+
+If Err.Number <> 0 Or param Is Nothing Then
+    Err.Clear
+    Set param = props.CreateString("DESENHO", valorDesenho)
+Else
+    param.Value = valorDesenho
+End If
+
+If Err.Number <> 0 Or param Is Nothing Then
+    MsgBox "Falha ao criar ou atualizar DESENHO." & vbCrLf & _
+           Err.Description, vbCritical
+    Exit Sub
+End If
+
+MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
+       "ITEM: " & valorItem & vbCrLf & _
+       "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
+       "Salve o documento no CATIA.", vbInformation
+       
+End Sub

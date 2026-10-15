@@ -23,6 +23,7 @@ Sub CATMain()
     Dim valorItem
     Dim valorDesenho
     Dim erro
+    Dim tipoDestino
 
     caminhoJanela = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\JanelaPropriedades.hta"
     caminhoResultado = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt"
@@ -59,46 +60,55 @@ Sub CATMain()
     Set doc = CATIA.ActiveDocument
 
     '------------------------------------------
-    ' 3. Identificar a peca de destino
+    ' 3. Identificar o destino das propriedades
     '------------------------------------------
 
     If TypeName(doc) = "PartDocument" Then
 
+        ' CATPart aberto diretamente: usa o produto-raiz do documento.
         Set targetProduct = doc.Product
+        tipoDestino = "CATPart aberto"
 
     ElseIf TypeName(doc) = "ProductDocument" Then
 
         Set sel = doc.Selection
 
         If sel.Count2 = 0 Then
-            MsgBox "Selecione um componente Part na arvore.", _
-                   vbExclamation
+            MsgBox "Abra um CATPart diretamente ou selecione um componente " & _
+                   "na arvore do CATProduct.", vbExclamation
             Exit Sub
         End If
 
         Set selectedObj = sel.Item2(1).Value
 
         If TypeName(selectedObj) <> "Product" Then
-            MsgBox "O item selecionado nao e um componente Product.", _
+            MsgBox "O item selecionado nao e um componente do tipo Product." & _
+                   vbCrLf & "Selecione o componente na arvore do CATIA.", _
                    vbExclamation
             Exit Sub
         End If
 
+        ' O destino inicial e o Product selecionado.
         Set targetProduct = selectedObj
+        tipoDestino = "Product selecionado"
 
+        ' Para componentes instanciados, UserRefProperties pertence a
+        ' ReferenceProduct. Tenta acessar a referencia correspondente.
+        Err.Clear
         Set refProduct = targetProduct.ReferenceProduct
-        Set refParent = refProduct.Parent
 
-        If TypeName(refParent) <> "PartDocument" Then
-            MsgBox "O componente selecionado nao referencia " & _
-                   "diretamente um CATPart." & vbCrLf & _
-                   "Selecione uma peca na arvore.", vbExclamation
-            Exit Sub
+        If Err.Number = 0 And Not refProduct Is Nothing Then
+            Set targetProduct = refProduct
+        Else
+            Err.Clear
+            ' Se nao houver referencia acessivel, mantem o Product selecionado.
+            Set targetProduct = selectedObj
         End If
 
     Else
 
-        MsgBox "Tipo de documento nao suportado.", vbExclamation
+        MsgBox "Tipo de documento nao suportado. Abra um CATPart ou CATProduct.", _
+               vbExclamation
         Exit Sub
 
     End If
@@ -107,9 +117,7 @@ Sub CATMain()
     ' 4. Preparar arquivo de resultado
     '------------------------------------------
 
-    Set arquivo = fso.CreateTextFile( _
-        caminhoResultado, True, True)
-
+    Set arquivo = fso.CreateTextFile(caminhoResultado, True, True)
     arquivo.WriteLine "CANCELADO"
     arquivo.Close
 
@@ -119,11 +127,9 @@ Sub CATMain()
 
     Set shell = CreateObject("WScript.Shell")
 
-    comando = """" & caminhoMSHTA & """ """ & _
-              caminhoJanela & """"
+    comando = """" & caminhoMSHTA & """ """ & caminhoJanela & """"
 
     Err.Clear
-
     shell.Run comando, 1, True
 
     If Err.Number <> 0 Then
@@ -141,8 +147,7 @@ Sub CATMain()
         Exit Sub
     End If
 
-    Set arquivo = fso.OpenTextFile( _
-        caminhoResultado, 1, False, -1)
+    Set arquivo = fso.OpenTextFile(caminhoResultado, 1, False, -1)
 
     If arquivo.AtEndOfStream Then
         arquivo.Close
@@ -172,75 +177,68 @@ Sub CATMain()
     End If
 
     valorDesenho = arquivo.ReadLine
-
     arquivo.Close
 
     '------------------------------------------
-' 7. Obter as propriedades do produto correto
-'------------------------------------------
+    ' 7. Obter as propriedades do destino
+    '------------------------------------------
 
-Err.Clear
-Set props = Nothing
-
-If TypeName(doc) = "ProductDocument" Then
-    Set refProduct = targetProduct.ReferenceProduct
-    Set props = refProduct.UserRefProperties
-Else
-    Set props = doc.Product.UserRefProperties
-End If
-
-If Err.Number <> 0 Or props Is Nothing Then
-    MsgBox "Nao foi possivel acessar as propriedades " & _
-           "do produto de destino." & vbCrLf & _
-           Err.Description, vbCritical
-    Exit Sub
-End If
-
-'------------------------------------------
-' 8. Criar ou atualizar ITEM
-'------------------------------------------
-
-Err.Clear
-Set param = Nothing
-Set param = props.Item("ITEM")
-
-If Err.Number <> 0 Or param Is Nothing Then
     Err.Clear
-    Set param = props.CreateString("ITEM", valorItem)
-Else
-    param.Value = valorItem
-End If
+    Set props = Nothing
+    Set props = targetProduct.UserRefProperties
 
-If Err.Number <> 0 Or param Is Nothing Then
-    MsgBox "Falha ao criar ou atualizar ITEM." & vbCrLf & _
-           Err.Description, vbCritical
-    Exit Sub
-End If
+    If Err.Number <> 0 Or props Is Nothing Then
+        MsgBox "Nao foi possivel acessar as propriedades do destino." & _
+               vbCrLf & Err.Description, vbCritical
+        Exit Sub
+    End If
 
-'------------------------------------------
-' 9. Criar ou atualizar DESENHO
-'------------------------------------------
+    '------------------------------------------
+    ' 8. Criar ou atualizar ITEM
+    '------------------------------------------
 
-Err.Clear
-Set param = Nothing
-Set param = props.Item("DESENHO")
-
-If Err.Number <> 0 Or param Is Nothing Then
     Err.Clear
-    Set param = props.CreateString("DESENHO", valorDesenho)
-Else
-    param.Value = valorDesenho
-End If
+    Set param = Nothing
+    Set param = props.Item("ITEM")
 
-If Err.Number <> 0 Or param Is Nothing Then
-    MsgBox "Falha ao criar ou atualizar DESENHO." & vbCrLf & _
-           Err.Description, vbCritical
-    Exit Sub
-End If
+    If Err.Number <> 0 Or param Is Nothing Then
+        Err.Clear
+        Set param = props.CreateString("ITEM", valorItem)
+    Else
+        param.Value = valorItem
+    End If
 
-MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
-       "ITEM: " & valorItem & vbCrLf & _
-       "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
-       "Salve o documento no CATIA.", vbInformation
-       
+    If Err.Number <> 0 Or param Is Nothing Then
+        MsgBox "Falha ao criar ou atualizar ITEM." & vbCrLf & _
+               Err.Description, vbCritical
+        Exit Sub
+    End If
+
+    '------------------------------------------
+    ' 9. Criar ou atualizar DESENHO
+    '------------------------------------------
+
+    Err.Clear
+    Set param = Nothing
+    Set param = props.Item("DESENHO")
+
+    If Err.Number <> 0 Or param Is Nothing Then
+        Err.Clear
+        Set param = props.CreateString("DESENHO", valorDesenho)
+    Else
+        param.Value = valorDesenho
+    End If
+
+    If Err.Number <> 0 Or param Is Nothing Then
+        MsgBox "Falha ao criar ou atualizar DESENHO." & vbCrLf & _
+               Err.Description, vbCritical
+        Exit Sub
+    End If
+
+    MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
+           "ITEM: " & valorItem & vbCrLf & _
+           "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
+           "Destino: " & tipoDestino & vbCrLf & _
+           "Salve o documento no CATIA.", vbInformation
+
 End Sub
