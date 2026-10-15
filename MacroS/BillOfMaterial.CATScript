@@ -30,7 +30,7 @@ Sub CATMain()
     Set oBOMConverter = oRootProduct.GetItem("BillOfMaterial")
     
     ' 4. Configura as colunas desejadas (Matriz Dinâmica)
-    Dim oPrintFormat(13)    
+    Dim oPrintFormat(16)    
     oPrintFormat(0) = "Part Number"
     oPrintFormat(1) = "Product Description"
     oPrintFormat(2) = "Nomenclature"
@@ -45,6 +45,9 @@ Sub CATMain()
     oPrintFormat(11) = "LARG"
     oPrintFormat(12) = "ALT"
     oPrintFormat(13) = "PROCESSO"
+    oPrintFormat(14) = "PDF"
+    oPrintFormat(15) = "DXF"
+    oPrintFormat(16) = "STEP"
     
     ' Define o formato para a listagem estruturada
     oBOMConverter.SetCurrentFormat oPrintFormat

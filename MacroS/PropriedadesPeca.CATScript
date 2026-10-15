@@ -1,33 +1,36 @@
 Option Explicit
 
+Function TextoSeguro(valorTexto)
+    ' Evita que quebras de linha danifiquem o formato CHAVE=VALOR.
+    Dim s
+    s = CStr(valorTexto)
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    TextoSeguro = s
+End Function
+
 Sub CATMain()
 
     On Error Resume Next
 
-    Dim doc
-    Dim sel
-    Dim selectedObj
-    Dim targetProduct
-    Dim refProduct
-    Dim refParent
-    Dim props
-    Dim param
-    Dim fso
-    Dim shell
-    Dim arquivo
-    Dim caminhoJanela
-    Dim caminhoResultado
-    Dim caminhoMSHTA
-    Dim comando
-    Dim status
-    Dim valorItem
-    Dim valorDesenho
-    Dim erro
+    Dim doc, sel, selectedObj
+    Dim targetProduct, refProduct
+    Dim props, param
+    Dim fso, shell, arquivo
+    Dim caminhoJanela, caminhoResultado, caminhoMSHTA
+    Dim comando, status, linha
     Dim tipoDestino
+    Dim dados, chaves, nomes
+    Dim i, pos, chave, valor
+    Dim gravadas, resumo
 
     caminhoJanela = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\JanelaPropriedades.hta"
     caminhoResultado = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\resultado.txt"
     caminhoMSHTA = "C:\Windows\System32\mshta.exe"
+
+    ' Ordem EXATA das propriedades de usuario (chave = nome no CATIA).
+    chaves = Array("ITEM", "REP", "TRAT_TERM", "TRAT_SUP", "DIAM_ESP", _
+                   "COMP", "LARG", "ALT", "PROCESSO", "PDF", "DXF", "STEP")
 
     Set fso = CreateObject("Scripting.FileSystemObject")
 
@@ -65,7 +68,6 @@ Sub CATMain()
 
     If TypeName(doc) = "PartDocument" Then
 
-        ' CATPart aberto diretamente: usa o produto-raiz do documento.
         Set targetProduct = doc.Product
         tipoDestino = "CATPart aberto"
 
@@ -88,12 +90,9 @@ Sub CATMain()
             Exit Sub
         End If
 
-        ' O destino inicial e o Product selecionado.
         Set targetProduct = selectedObj
         tipoDestino = "Product selecionado"
 
-        ' Para componentes instanciados, UserRefProperties pertence a
-        ' ReferenceProduct. Tenta acessar a referencia correspondente.
         Err.Clear
         Set refProduct = targetProduct.ReferenceProduct
 
@@ -101,7 +100,6 @@ Sub CATMain()
             Set targetProduct = refProduct
         Else
             Err.Clear
-            ' Se nao houver referencia acessivel, mantem o Product selecionado.
             Set targetProduct = selectedObj
         End If
 
@@ -114,11 +112,51 @@ Sub CATMain()
     End If
 
     '------------------------------------------
-    ' 4. Preparar arquivo de resultado
+    ' 4. Exportar valores atuais para a janela HTA
+    '    O status INICIAL indica que a janela deve carregar os campos.
     '------------------------------------------
 
     Set arquivo = fso.CreateTextFile(caminhoResultado, True, True)
-    arquivo.WriteLine "CANCELADO"
+    arquivo.WriteLine "INICIAL"
+
+    Err.Clear
+    valor = ""
+    valor = targetProduct.DescriptionRef
+    If Err.Number <> 0 Then
+        Err.Clear
+        valor = targetProduct.DescriptionInst
+    End If
+    arquivo.WriteLine "PRODUCT_DESCRIPTION=" & TextoSeguro(valor)
+
+    Err.Clear
+    valor = ""
+    valor = targetProduct.Nomenclature
+    arquivo.WriteLine "NOMENCLATURE=" & TextoSeguro(valor)
+
+    Err.Clear
+    valor = ""
+    valor = targetProduct.Definition
+    arquivo.WriteLine "DEFINITION=" & TextoSeguro(valor)
+
+    Err.Clear
+    Set props = Nothing
+    Set props = targetProduct.UserRefProperties
+
+    For i = 0 To UBound(chaves)
+        chave = chaves(i)
+        valor = ""
+        Err.Clear
+        If Not props Is Nothing Then
+            Set param = Nothing
+            Set param = props.Item(chave)
+            If Err.Number = 0 And Not param Is Nothing Then
+                valor = param.Value
+            End If
+        End If
+        Err.Clear
+        arquivo.WriteLine chave & "=" & TextoSeguro(valor)
+    Next
+
     arquivo.Close
 
     '------------------------------------------
@@ -139,7 +177,7 @@ Sub CATMain()
     End If
 
     '------------------------------------------
-    ' 6. Ler os valores preenchidos
+    ' 6. Ler os valores preenchidos (CHAVE=VALOR)
     '------------------------------------------
 
     If Not fso.FileExists(caminhoResultado) Then
@@ -155,32 +193,90 @@ Sub CATMain()
         Exit Sub
     End If
 
-    status = arquivo.ReadLine
+    status = Trim(arquivo.ReadLine)
 
     If status <> "OK" Then
         arquivo.Close
         Exit Sub
     End If
 
-    If arquivo.AtEndOfStream Then
-        arquivo.Close
+    Set dados = CreateObject("Scripting.Dictionary")
+
+    Do While Not arquivo.AtEndOfStream
+
+        linha = arquivo.ReadLine
+        pos = InStr(linha, "=")
+
+        If pos > 1 Then
+            chave = Trim(Left(linha, pos - 1))
+            valor = Trim(Mid(linha, pos + 1))
+            If Not dados.Exists(chave) Then
+                dados.Add chave, valor
+            Else
+                dados(chave) = valor
+            End If
+        End If
+
+    Loop
+
+    arquivo.Close
+
+    If Not dados.Exists("ITEM") Then
         MsgBox "Valor ITEM nao encontrado.", vbCritical
         Exit Sub
     End If
 
-    valorItem = arquivo.ReadLine
-
-    If arquivo.AtEndOfStream Then
-        arquivo.Close
-        MsgBox "Valor DESENHO nao encontrado.", vbCritical
+    If Trim(dados("ITEM")) = "" Then
+        MsgBox "O campo ITEM nao pode ficar vazio.", vbCritical
         Exit Sub
     End If
 
-    valorDesenho = arquivo.ReadLine
-    arquivo.Close
+    '------------------------------------------
+    ' 7. Propriedades NATIVAS do CATIA
+    '------------------------------------------
+
+    gravadas = 0
+    resumo = ""
+
+    If dados.Exists("PRODUCT_DESCRIPTION") Then
+        valor = dados("PRODUCT_DESCRIPTION")
+        If valor <> "" Then
+            Err.Clear
+            targetProduct.DescriptionRef = valor
+            If Err.Number <> 0 Then
+                Err.Clear
+                targetProduct.DescriptionInst = valor
+                Err.Clear
+            End If
+            gravadas = gravadas + 1
+            resumo = resumo & "Product Description: " & valor & vbCrLf
+        End If
+    End If
+
+    If dados.Exists("NOMENCLATURE") Then
+        valor = dados("NOMENCLATURE")
+        If valor <> "" Then
+            Err.Clear
+            targetProduct.Nomenclature = valor
+            Err.Clear
+            gravadas = gravadas + 1
+            resumo = resumo & "Nomenclature: " & valor & vbCrLf
+        End If
+    End If
+
+    If dados.Exists("DEFINITION") Then
+        valor = dados("DEFINITION")
+        If valor <> "" Then
+            Err.Clear
+            targetProduct.Definition = valor
+            Err.Clear
+            gravadas = gravadas + 1
+            resumo = resumo & "Definition: " & valor & vbCrLf
+        End If
+    End If
 
     '------------------------------------------
-    ' 7. Obter as propriedades do destino
+    ' 8. Propriedades de USUARIO (na ordem definida)
     '------------------------------------------
 
     Err.Clear
@@ -193,51 +289,49 @@ Sub CATMain()
         Exit Sub
     End If
 
+    For i = 0 To UBound(chaves)
+
+        chave = chaves(i)
+
+        If dados.Exists(chave) Then
+
+            valor = dados(chave)
+
+            If valor <> "" Then
+
+                Err.Clear
+                Set param = Nothing
+                Set param = props.Item(chave)
+
+                If Err.Number <> 0 Or param Is Nothing Then
+                    Err.Clear
+                    Set param = props.CreateString(chave, valor)
+                Else
+                    Err.Clear
+                    param.Value = valor
+                End If
+
+                If Err.Number <> 0 Or param Is Nothing Then
+                    Err.Clear
+                    MsgBox "Falha ao criar ou atualizar a propriedade " & _
+                           chave & ".", vbCritical
+                Else
+                    gravadas = gravadas + 1
+                    resumo = resumo & chave & ": " & valor & vbCrLf
+                End If
+
+            End If
+
+        End If
+
+    Next
+
     '------------------------------------------
-    ' 8. Criar ou atualizar ITEM
+    ' 9. Resumo
     '------------------------------------------
 
-    Err.Clear
-    Set param = Nothing
-    Set param = props.Item("ITEM")
-
-    If Err.Number <> 0 Or param Is Nothing Then
-        Err.Clear
-        Set param = props.CreateString("ITEM", valorItem)
-    Else
-        param.Value = valorItem
-    End If
-
-    If Err.Number <> 0 Or param Is Nothing Then
-        MsgBox "Falha ao criar ou atualizar ITEM." & vbCrLf & _
-               Err.Description, vbCritical
-        Exit Sub
-    End If
-
-    '------------------------------------------
-    ' 9. Criar ou atualizar DESENHO
-    '------------------------------------------
-
-    Err.Clear
-    Set param = Nothing
-    Set param = props.Item("DESENHO")
-
-    If Err.Number <> 0 Or param Is Nothing Then
-        Err.Clear
-        Set param = props.CreateString("DESENHO", valorDesenho)
-    Else
-        param.Value = valorDesenho
-    End If
-
-    If Err.Number <> 0 Or param Is Nothing Then
-        MsgBox "Falha ao criar ou atualizar DESENHO." & vbCrLf & _
-               Err.Description, vbCritical
-        Exit Sub
-    End If
-
-    MsgBox "Propriedades gravadas com sucesso!" & vbCrLf & _
-           "ITEM: " & valorItem & vbCrLf & _
-           "DESENHO: " & valorDesenho & vbCrLf & vbCrLf & _
+    MsgBox "Propriedades gravadas: " & gravadas & vbCrLf & vbCrLf & _
+           resumo & vbCrLf & _
            "Destino: " & tipoDestino & vbCrLf & _
            "Salve o documento no CATIA.", vbInformation
 
