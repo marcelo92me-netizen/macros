@@ -29,7 +29,7 @@ Sub CATMain()
     caminhoMSHTA = "C:\Windows\System32\mshta.exe"
 
     ' Ordem EXATA das propriedades de usuario (chave = nome no CATIA).
-    chaves = Array("ITEM", "REP", "TRAT_TERM", "TRAT_SUP", "DIAM_ESP", _
+    chaves = Array("ITEM", "REPOSICAO", "TRAT_TERM", "TRAT_SUP", "DIAM_ESP", _
                    "COMP", "LARG", "ALT", "PROCESSO", "PDF", "DXF", "STEP")
 
     Set fso = CreateObject("Scripting.FileSystemObject")
