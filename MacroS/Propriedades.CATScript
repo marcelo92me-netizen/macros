@@ -106,7 +106,7 @@ Sub ProcessarComponenteComChecagem(ByRef targetProduct, ByVal ehPart)
     ' Cria APENAS as propriedades que não foram encontradas na varredura acima
     On Error Resume Next
     If bTemItem = False Then oProperties.CreateString "ITEM", "Item"
-    If bTemReposicao = False Then oProperties.CreateString "REPOSICAO", "NÃO"
+    If bTemReposicao = False Then oProperties.CreateString "REPOSICAO", "N/A"
     If bTemTratSup = False Then oProperties.CreateString "TRAT_SUP", "N/A"
     If bTemTratTerm = False Then oProperties.CreateString "TRAT_TERM", "N/A"
 
