@@ -305,9 +305,13 @@ Estes pontos foram identificados pela leitura estática dos arquivos e devem ser
 - Ao distribuir o projeto, remova dados de exemplo de `resultado.txt` ou substitua-os por um arquivo de estado inicial apropriado.
 - Registre a versão do CATIA e do Windows em que o conjunto de macros foi testado.
 
-## Licença e distribuição
+## Licença
 
-Não há arquivo de licença ou informação de distribuição incluído no diretório analisado. Defina e adicione uma licença própria antes de distribuir publicamente ou incorporar o projeto a um produto.
+Este projeto é distribuído sob a **Licença MIT**. Consulte o arquivo [`LICENSE`](LICENSE) para ler o texto integral da licença.
+
+A licença MIT permite usar, copiar, modificar, mesclar, publicar, distribuir, sublicenciar e/ou vender cópias do software, desde que o aviso de copyright e o texto da licença sejam mantidos nas cópias ou partes substanciais do software. O software é fornecido “como está”, sem garantia de qualquer tipo, conforme os termos completos do arquivo `LICENSE`.
+
+A licença do projeto não concede direitos sobre marcas registradas nem altera os termos de licenciamento do CATIA V5 ou de outros softwares de terceiros usados em conjunto com estas macros.
 
 ---
 
