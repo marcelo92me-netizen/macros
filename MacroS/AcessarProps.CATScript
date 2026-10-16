@@ -1,0 +1,785 @@
+Option Explicit
+
+Const PASTA = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\"
+Const NOME_HTA = "JanelaPropriedades.hta"
+Const NOME_RESULTADO = "resultado.txt"
+
+Sub CATMain()
+
+    Dim docDrawing, folha, vistas, vista
+    Dim objOrigem, produto, refProduto, docSalvar
+    Dim fso, shell, arquivo
+    Dim caminhoHTA, caminhoResultado
+    Dim encontrou, i, status
+    Dim chaves, valores
+    Dim ok, mensagem, partNumberAtual
+    Dim resultadoCampo
+
+    chaves = Array( _
+        "PRODUCT_DESCRIPTION", _
+        "NOMENCLATURE", _
+        "DEFINITION", _
+        "ITEM", _
+        "REPOSICAO", _
+        "TRAT_TERM", _
+        "TRAT_SUP", _
+        "DIAM_ESP", _
+        "COMP", _
+        "LARG", _
+        "ALT", _
+        "PROCESSO", _
+        "PDF", _
+        "DXF", _
+        "STEP")
+
+    caminhoHTA = PASTA & NOME_HTA
+    caminhoResultado = PASTA & NOME_RESULTADO
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    If Not fso.FileExists(caminhoHTA) Then
+        MsgBox "Arquivo HTA nao encontrado:" & vbCrLf & caminhoHTA
+        Exit Sub
+    End If
+
+    If CATIA.Documents.Count = 0 Then
+        MsgBox "Nao ha documentos abertos no CATIA."
+        Exit Sub
+    End If
+
+    Set docDrawing = CATIA.ActiveDocument
+
+    If TypeName(docDrawing) <> "DrawingDocument" Then
+        MsgBox "Ative o Drawing antes de executar a macro."
+        Exit Sub
+    End If
+
+    ' =====================================================
+    ' 1. Localizar o modelo 3D associado ao Drawing
+    '    Procura em todas as folhas, nao apenas na folha ativa.
+    ' =====================================================
+
+    Set objOrigem = Nothing
+    encontrou = False
+
+    Dim folhasDrawing, idxFolha
+
+    Set folhasDrawing = docDrawing.Sheets
+
+    For idxFolha = 1 To folhasDrawing.Count
+
+        Set folha = folhasDrawing.Item(idxFolha)
+        Set vistas = Nothing
+
+        On Error Resume Next
+        Set vistas = folha.Views
+        Err.Clear
+        On Error GoTo 0
+
+        If Not vistas Is Nothing Then
+
+            For i = 1 To vistas.Count
+
+                Set vista = vistas.Item(i)
+
+                On Error Resume Next
+
+                If vista.IsGenerative Then
+                    Set objOrigem = vista.GenerativeBehavior.Document
+
+                    If Err.Number = 0 Then
+                        If Not objOrigem Is Nothing Then
+                            encontrou = True
+                        End If
+                    End If
+                End If
+
+                Err.Clear
+                On Error GoTo 0
+
+                If encontrou Then Exit For
+
+            Next
+
+        End If
+
+        If encontrou Then Exit For
+
+    Next
+
+    If Not encontrou Then
+        MsgBox "Nenhum modelo 3D associado foi encontrado nas folhas " & _
+               "do Drawing. Verifique se existe uma vista generativa " & _
+               "vinculada ao modelo 3D."
+        Exit Sub
+    End If
+
+    ' =====================================================
+    ' 2. Identificar Product e documento de origem
+    ' =====================================================
+
+    Set produto = Nothing
+    Set docSalvar = Nothing
+
+    Select Case TypeName(objOrigem)
+
+        Case "Product"
+
+            Set produto = objOrigem
+            Set docSalvar = EncontrarDocumento(objOrigem)
+
+        Case "PartDocument", "ProductDocument"
+
+            Set docSalvar = objOrigem
+
+            On Error Resume Next
+            Set produto = objOrigem.Product
+            Err.Clear
+            On Error GoTo 0
+
+        Case Else
+
+            MsgBox "Tipo retornado pela vista: " & _
+                   TypeName(objOrigem) & vbCrLf & _
+                   "Tipo de objeto nao suportado."
+            Exit Sub
+
+    End Select
+
+    If produto Is Nothing Then
+        MsgBox "Nao foi possivel obter o objeto Product."
+        Exit Sub
+    End If
+
+    If docSalvar Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento 3D " & _
+               "que contem o modelo. Nenhuma alteracao sera salva."
+        Exit Sub
+    End If
+
+    Set refProduto = Nothing
+
+    On Error Resume Next
+    Set refProduto = produto.ReferenceProduct
+    Err.Clear
+    On Error GoTo 0
+
+    If refProduto Is Nothing Then
+        Set refProduto = produto
+    End If
+
+    ' =====================================================
+    ' 3. Ler as propriedades atuais do modelo 3D
+    ' =====================================================
+
+    valores = Array( _
+        LerNativa(refProduto, "PRODUCT_DESCRIPTION"), _
+        LerNativa(refProduto, "NOMENCLATURE"), _
+        LerNativa(refProduto, "DEFINITION"), _
+        LerPersonalizada(refProduto, "ITEM"), _
+        LerPersonalizada(refProduto, "REPOSICAO"), _
+        LerPersonalizada(refProduto, "TRAT_TERM"), _
+        LerPersonalizada(refProduto, "TRAT_SUP"), _
+        LerPersonalizada(refProduto, "DIAM_ESP"), _
+        LerPersonalizada(refProduto, "COMP"), _
+        LerPersonalizada(refProduto, "LARG"), _
+        LerPersonalizada(refProduto, "ALT"), _
+        LerPersonalizada(refProduto, "PROCESSO"), _
+        LerPersonalizada(refProduto, "PDF"), _
+        LerPersonalizada(refProduto, "DXF"), _
+        LerPersonalizada(refProduto, "STEP"))
+
+    ' =====================================================
+    ' 4. Preparar o arquivo inicial para o HTA
+    ' =====================================================
+
+    Set arquivo = fso.CreateTextFile(caminhoResultado, True, True)
+
+    arquivo.WriteLine "INICIAL"
+
+    For i = 0 To UBound(chaves)
+        arquivo.WriteLine chaves(i) & "=" & CStr(valores(i))
+    Next
+
+    arquivo.Close
+
+    ' =====================================================
+    ' 5. Abrir a janela HTA e aguardar seu fechamento
+    ' =====================================================
+
+    Set shell = CreateObject("WScript.Shell")
+
+    On Error Resume Next
+    shell.Run "mshta.exe """ & caminhoHTA & """", 1, True
+
+    If Err.Number <> 0 Then
+
+        mensagem = Err.Description
+        Err.Clear
+        On Error GoTo 0
+
+        MsgBox "Erro ao abrir a janela HTA:" & vbCrLf & mensagem
+        Exit Sub
+
+    End If
+
+    On Error GoTo 0
+    Set shell = Nothing
+
+    ' =====================================================
+    ' 6. Ler os valores retornados pelo formulario
+    ' =====================================================
+
+    status = LerResultado(caminhoResultado, chaves, valores)
+
+    If UCase(status) <> "OK" Then
+        MsgBox "Operacao cancelada ou retorno invalido." & vbCrLf & _
+               "O documento nao sera salvo."
+        Exit Sub
+    End If
+
+    ' =====================================================
+    ' 7. Atualizar propriedades nativas do modelo 3D
+    ' =====================================================
+
+    ok = True
+    mensagem = ""
+
+    If Not DefinirNativa(refProduto, _
+        "PRODUCT_DESCRIPTION", valores(0)) Then
+
+        ok = False
+        mensagem = mensagem & vbCrLf & "PRODUCT_DESCRIPTION"
+
+    End If
+
+    If Not DefinirNativa(refProduto, _
+        "NOMENCLATURE", valores(1)) Then
+
+        ok = False
+        mensagem = mensagem & vbCrLf & "NOMENCLATURE"
+
+    End If
+
+    If Not DefinirNativa(refProduto, _
+        "DEFINITION", valores(2)) Then
+
+        ok = False
+        mensagem = mensagem & vbCrLf & "DEFINITION"
+
+    End If
+
+    ' =====================================================
+    ' 8. Atualizar propriedades personalizadas do modelo 3D
+    ' =====================================================
+
+    For i = 3 To UBound(chaves)
+
+        If Not DefinirPersonalizada( _
+            refProduto, CStr(chaves(i)), CStr(valores(i))) Then
+
+            ok = False
+            mensagem = mensagem & vbCrLf & CStr(chaves(i))
+
+        End If
+
+    Next
+
+    If Not ok Then
+
+        MsgBox "Falha ao atualizar propriedades do modelo 3D:" & _
+               vbCrLf & mensagem & vbCrLf & vbCrLf & _
+               "Os documentos nao serao salvos. Verifique " & _
+               "o armazenamento das propriedades."
+
+        Exit Sub
+
+    End If
+
+    ' =====================================================
+    ' 9. Obter o PartNumber do modelo 3D
+    ' =====================================================
+
+    partNumberAtual = ""
+
+    On Error Resume Next
+    partNumberAtual = refProduto.PartNumber
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        partNumberAtual = ""
+    End If
+
+    On Error GoTo 0
+
+    ' =====================================================
+    ' 10. Atualizar Text.524 no Drawing: PartNumber
+    ' =====================================================
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "Text.524", CStr(partNumberAtual)) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "Text.524 (PartNumber)"
+    End If
+
+    ' =====================================================
+    ' 11. Atualizar Text.525 no Drawing: PDF
+    ' =====================================================
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "Text.525", CStr(valores(12))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "Text.525 (PDF)"
+    End If
+
+    ' =====================================================
+    ' 12. Atualizar os novos campos de texto sobre a tabela
+    '
+    '   Text.526 <- propriedade personalizada ITEM
+    '   Text.527 <- propriedade nativa DEFINITION
+    '   Text.528 <- propriedade nativa PRODUCT_DESCRIPTION
+    '
+    '   Os campos Quant. e Obs. nao sao alterados pela macro.
+    ' =====================================================
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "Text.526", CStr(valores(3))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "Text.526 (ITEM)"
+    End If
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "Text.527", CStr(valores(2))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "Text.527 (DEFINITION / Material)"
+    End If
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "Text.528", CStr(valores(0))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "Text.528 (PRODUCT_DESCRIPTION / Descricao)"
+    End If
+
+    If Len(mensagem) > 0 Then
+
+        MsgBox "Nao foi possivel atualizar todos os campos de texto " & _
+               "do Drawing:" & vbCrLf & mensagem & vbCrLf & vbCrLf & _
+               "Verifique se os objetos Text.526, Text.527 e Text.528 " & _
+               "existem e se seus nomes estao corretos. Os documentos " & _
+               "nao serao salvos enquanto houver falhas."
+
+        Exit Sub
+
+    End If
+
+    ' =====================================================
+    ' 13. Salvar o modelo 3D
+    ' =====================================================
+
+    On Error Resume Next
+
+    docSalvar.Save
+
+    If Err.Number <> 0 Then
+
+        mensagem = Err.Description
+        Err.Clear
+        On Error GoTo 0
+
+        MsgBox "Falha ao salvar o modelo 3D:" & vbCrLf & mensagem
+        Exit Sub
+
+    End If
+
+    On Error GoTo 0
+
+    ' =====================================================
+    ' 14. Salvar o Drawing
+    ' =====================================================
+
+    On Error Resume Next
+
+    docDrawing.Save
+
+    If Err.Number <> 0 Then
+
+        mensagem = Err.Description
+        Err.Clear
+        On Error GoTo 0
+
+        MsgBox "O modelo 3D foi salvo, mas houve falha " & _
+               "ao salvar o Drawing:" & vbCrLf & mensagem
+        Exit Sub
+
+    End If
+
+    On Error GoTo 0
+
+    MsgBox "Operacao concluida!" & vbCrLf & vbCrLf & _
+           "Modelo 3D atualizado e salvo." & vbCrLf & _
+           "Drawing atualizado e salvo."
+
+End Sub
+
+
+' =========================================================
+' Localizar o documento proprietario do objeto
+' =========================================================
+
+Function EncontrarDocumento(objeto)
+
+    Dim atual, pai, tipo, nivel
+
+    Set EncontrarDocumento = Nothing
+    Set atual = objeto
+
+    For nivel = 1 To 30
+
+        If atual Is Nothing Then Exit For
+
+        tipo = TypeName(atual)
+
+        If tipo = "PartDocument" Or _
+           tipo = "ProductDocument" Then
+
+            Set EncontrarDocumento = atual
+            Exit Function
+
+        End If
+
+        Set pai = Nothing
+
+        On Error Resume Next
+        Set pai = atual.Parent
+        Err.Clear
+        On Error GoTo 0
+
+        If pai Is Nothing Then Exit For
+
+        Set atual = pai
+
+    Next
+
+End Function
+
+
+' =========================================================
+' Ler propriedades nativas
+' =========================================================
+
+Function LerNativa(produto, nome)
+
+    Dim valor
+
+    valor = ""
+
+    On Error Resume Next
+
+    Select Case nome
+
+        Case "PRODUCT_DESCRIPTION"
+            valor = produto.DescriptionRef
+
+        Case "NOMENCLATURE"
+            valor = produto.Nomenclature
+
+        Case "DEFINITION"
+            valor = produto.Definition
+
+    End Select
+
+    If Err.Number <> 0 Then
+        valor = ""
+        Err.Clear
+    End If
+
+    On Error GoTo 0
+
+    LerNativa = CStr(valor)
+
+End Function
+
+
+' =========================================================
+' Escrever propriedades nativas
+' =========================================================
+
+Function DefinirNativa(produto, nome, valor)
+
+    DefinirNativa = False
+
+    On Error Resume Next
+
+    Select Case nome
+
+        Case "PRODUCT_DESCRIPTION"
+            produto.DescriptionRef = CStr(valor)
+
+        Case "NOMENCLATURE"
+            produto.Nomenclature = CStr(valor)
+
+        Case "DEFINITION"
+            produto.Definition = CStr(valor)
+
+        Case Else
+            Exit Function
+
+    End Select
+
+    If Err.Number = 0 Then
+        DefinirNativa = True
+    End If
+
+    Err.Clear
+    On Error GoTo 0
+
+End Function
+
+
+' =========================================================
+' Ler propriedades personalizadas
+' =========================================================
+
+Function LerPersonalizada(produto, nome)
+
+    Dim colecao, propriedade, valor
+
+    LerPersonalizada = ""
+    Set colecao = Nothing
+    Set propriedade = Nothing
+
+    On Error Resume Next
+
+    Set colecao = produto.UserRefProperties
+    Set propriedade = colecao.Item(nome)
+
+    If Err.Number = 0 Then
+
+        If Not propriedade Is Nothing Then
+
+            valor = propriedade.Value
+
+            If Err.Number = 0 Then
+                LerPersonalizada = CStr(valor)
+            End If
+
+        End If
+
+    End If
+
+    Err.Clear
+    On Error GoTo 0
+
+End Function
+
+
+' =========================================================
+' Criar ou atualizar propriedades personalizadas
+' =========================================================
+
+Function DefinirPersonalizada(produto, nome, valor)
+
+    Dim colecao, propriedade
+
+    DefinirPersonalizada = False
+    Set colecao = Nothing
+    Set propriedade = Nothing
+
+    On Error Resume Next
+
+    Set colecao = produto.UserRefProperties
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Set propriedade = colecao.Item(nome)
+
+    Err.Clear
+    On Error GoTo 0
+
+    If propriedade Is Nothing Then
+
+        On Error Resume Next
+
+        Set propriedade = colecao.CreateString( _
+            CStr(nome), CStr(valor))
+
+        If Err.Number = 0 Then
+            DefinirPersonalizada = True
+        End If
+
+        Err.Clear
+        On Error GoTo 0
+
+    Else
+
+        On Error Resume Next
+
+        propriedade.Value = CStr(valor)
+
+        If Err.Number = 0 Then
+            DefinirPersonalizada = True
+        End If
+
+        Err.Clear
+        On Error GoTo 0
+
+    End If
+
+End Function
+
+
+' =========================================================
+' Atualizar texto identificado pelo nome no Drawing
+' =========================================================
+
+Function AtualizarTextoDrawing(docDrawing, nomeTexto, novoValor)
+
+    Dim folhas, folha, vistas, vista, textos, texto
+    Dim i, j, k, encontrado, alterado
+
+    AtualizarTextoDrawing = False
+    encontrado = False
+    alterado = False
+
+    On Error Resume Next
+    Set folhas = docDrawing.Sheets
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    For i = 1 To folhas.Count
+
+        Set folha = folhas.Item(i)
+        Set vistas = Nothing
+
+        On Error Resume Next
+        Set vistas = folha.Views
+        Err.Clear
+        On Error GoTo 0
+
+        If Not vistas Is Nothing Then
+
+            For j = 1 To vistas.Count
+
+                Set vista = vistas.Item(j)
+                Set textos = Nothing
+
+                On Error Resume Next
+                Set textos = vista.Texts
+                Err.Clear
+                On Error GoTo 0
+
+                If Not textos Is Nothing Then
+
+                    For k = 1 To textos.Count
+
+                        Set texto = textos.Item(k)
+
+                        On Error Resume Next
+
+                        If CStr(texto.Name) = nomeTexto Then
+
+                            encontrado = True
+                            texto.Text = CStr(novoValor)
+
+                            If Err.Number = 0 Then
+                                alterado = True
+                            End If
+
+                        End If
+
+                        Err.Clear
+                        On Error GoTo 0
+
+                    Next
+
+                End If
+
+            Next
+
+        End If
+
+    Next
+
+    AtualizarTextoDrawing = (encontrado And alterado)
+
+End Function
+
+
+' =========================================================
+' Ler retorno gravado pela janela HTA
+' =========================================================
+
+Function LerResultado(caminho, chaves, ByRef valores)
+
+    Dim fso, arquivo
+    Dim linha, pos, chave, valor, i
+
+    LerResultado = ""
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    If Not fso.FileExists(caminho) Then Exit Function
+
+    On Error Resume Next
+
+    Set arquivo = fso.OpenTextFile(caminho, 1, False, -1)
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    If arquivo.AtEndOfStream Then
+        arquivo.Close
+        Exit Function
+    End If
+
+    LerResultado = Trim(arquivo.ReadLine)
+
+    If UCase(LerResultado) <> "OK" Then
+        arquivo.Close
+        Exit Function
+    End If
+
+    Do While Not arquivo.AtEndOfStream
+
+        linha = arquivo.ReadLine
+        pos = InStr(linha, "=")
+
+        If pos > 0 Then
+
+            chave = Trim(Left(linha, pos - 1))
+            valor = Mid(linha, pos + 1)
+
+            For i = 0 To UBound(chaves)
+
+                If UCase(chave) = UCase(CStr(chaves(i))) Then
+                    valores(i) = valor
+                    Exit For
+                End If
+
+            Next
+
+        End If
+
+    Loop
+
+    arquivo.Close
+
+End Function

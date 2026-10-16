@@ -1,0 +1,213 @@
+
+Option Explicit
+
+Dim referenciasProcessadas()
+Dim totalReferencias
+Dim contadorItens
+Dim prefixoItem
+Dim falhas
+
+
+Sub CATMain()
+
+    Dim doc
+    Dim conjunto
+    Dim resposta
+
+    On Error Resume Next
+    Set doc = CATIA.ActiveDocument
+    On Error GoTo 0
+
+    If doc Is Nothing Then
+        MsgBox "Nenhum documento ativo encontrado.", _
+               vbExclamation, "Numerar Itens"
+        Exit Sub
+    End If
+
+    If TypeName(doc) <> "ProductDocument" Then
+        MsgBox "Ative um documento Product antes de executar.", _
+               vbExclamation, "Numerar Itens"
+        Exit Sub
+    End If
+
+    ' O conjunto ativo sera a raiz do processamento
+    Set conjunto = doc.Product
+
+    resposta = InputBox( _
+        "Informe a letra ou o prefixo para numerar os componentes." & _
+        vbCrLf & vbCrLf & _
+        "Exemplo: E resulta em E1, E2, E3..." & vbCrLf & _
+        "Deixe vazio para utilizar somente os numeros.", _
+        "Numerar componentes")
+
+    prefixoItem = Trim(resposta)
+
+    totalReferencias = 0
+    contadorItens = 0
+    falhas = 0
+
+    ReDim referenciasProcessadas(0)
+
+    ' Processa somente os filhos diretos do conjunto selecionado
+    Call PercorrerComponentesDiretos(conjunto)
+
+    On Error Resume Next
+    doc.Product.Update
+    On Error GoTo 0
+
+    MsgBox "Processamento concluido." & vbCrLf & vbCrLf & _
+           "Referencias unicas processadas: " & contadorItens & vbCrLf & _
+           "Falhas: " & falhas, _
+           vbInformation, "Numerar Itens"
+
+End Sub
+
+
+Function ReferenciaJaProcessada(referencia)
+
+    Dim i
+
+    ReferenciaJaProcessada = False
+
+    For i = 1 To totalReferencias
+
+        If referenciasProcessadas(i) Is referencia Then
+            ReferenciaJaProcessada = True
+            Exit Function
+        End If
+
+    Next
+
+End Function
+
+
+Sub RegistrarReferencia(referencia)
+
+    totalReferencias = totalReferencias + 1
+
+    ReDim Preserve referenciasProcessadas(totalReferencias)
+
+    Set referenciasProcessadas(totalReferencias) = referencia
+
+End Sub
+
+
+Sub PercorrerComponentesDiretos(produtoPai)
+
+    Dim componentes
+    Dim componente
+    Dim referencia
+    Dim i
+    Dim erro
+    Dim jaProcessado
+
+    On Error Resume Next
+    Set componentes = produtoPai.Products
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        falhas = falhas + 1
+        On Error GoTo 0
+        Exit Sub
+    End If
+
+    On Error GoTo 0
+
+    For i = 1 To componentes.Count
+
+        Set componente = componentes.Item(i)
+        Set referencia = Nothing
+
+        ' Obtem a referencia do componente
+        On Error Resume Next
+        Set referencia = componente.ReferenceProduct
+        erro = Err.Number
+        Err.Clear
+        On Error GoTo 0
+
+        If erro <> 0 Or referencia Is Nothing Then
+
+            falhas = falhas + 1
+
+        Else
+
+            jaProcessado = ReferenciaJaProcessada(referencia)
+
+            If Not jaProcessado Then
+
+                Call RegistrarReferencia(referencia)
+
+                contadorItens = contadorItens + 1
+
+                Call DefinirPropriedadeItem( _
+                    componente, prefixoItem & CStr(contadorItens))
+
+            End If
+
+        End If
+
+        ' IMPORTANTE:
+        ' Nao existe chamada recursiva.
+        ' Os componentes internos dos subconjuntos nao sao processados.
+
+    Next
+
+End Sub
+
+
+Sub DefinirPropriedadeItem(componente, valorItem)
+
+    Dim propriedades
+    Dim propriedade
+    Dim erro
+
+    Set propriedades = Nothing
+    Set propriedade = Nothing
+
+    On Error Resume Next
+    Set propriedades = componente.ReferenceProduct.UserRefProperties
+    erro = Err.Number
+    Err.Clear
+    On Error GoTo 0
+
+    If erro <> 0 Or propriedades Is Nothing Then
+        falhas = falhas + 1
+        Exit Sub
+    End If
+
+    ' Procura a propriedade ITEM
+    On Error Resume Next
+    Set propriedade = propriedades.Item("ITEM")
+    erro = Err.Number
+    Err.Clear
+    On Error GoTo 0
+
+    If erro = 0 Then
+
+        ' Atualiza a propriedade existente
+        On Error Resume Next
+        propriedade.Value = valorItem
+
+        If Err.Number <> 0 Then
+            falhas = falhas + 1
+            Err.Clear
+        End If
+
+        On Error GoTo 0
+
+    Else
+
+        ' Cria a propriedade ITEM como texto
+        On Error Resume Next
+        Set propriedade = propriedades.CreateString("ITEM", valorItem)
+
+        If Err.Number <> 0 Then
+            falhas = falhas + 1
+            Err.Clear
+        End If
+
+        On Error GoTo 0
+
+    End If
+
+End Sub
