@@ -479,6 +479,14 @@ Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
                     End If
                 End If
             End If
+
+            ' Bend From Flat e um recurso de dobra independente.
+            ' A presenca do recurso na arvore de parametros ja caracteriza
+            ' a peca como chapa dobrada; ele nao utiliza o parametro booleano
+            ' "Wall on Edge with Bend" verificado abaixo.
+            If InStr(nome, "bend from flat") > 0 Then
+                possuiDobra = True
+            End If
         End If
     Next
 
