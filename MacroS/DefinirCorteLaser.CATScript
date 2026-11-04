@@ -1,0 +1,616 @@
+Option Explicit
+
+' ============================================================
+' ANALISE E GRAVACAO DAS PROPRIEDADES PROCESSO E DIAM_ESP
+' CATIA V5-6R2021 - Generative Sheetmetal Design
+'
+' CHAPA SEM DOBRA: PROCESSO = LASER
+' CHAPA COM DOBRA: PROCESSO = LASER + DOBRA
+' DIAM_ESP: valor de Thickness do Sheet Metal Parameter,
+'           preservando a unidade apresentada pelo CATIA.
+' SOLIDO CONVENCIONAL: nenhuma propriedade e alterada.
+'
+' Gravacao em Product.UserRefProperties como User Property String.
+' A identificacao geometrica e a mesma da macro de exportacao.
+' Esta macro nao exporta STEP/DXF e nao remove propriedades.
+' ============================================================
+
+Dim fso
+Dim pecasProcessadas
+Dim arquivoLog
+
+Dim pastaPrincipal
+Dim caminhoRelatorio
+
+Dim totalPecas
+Dim totalChapas
+Dim totalDobras
+Dim totalLaser
+Dim totalSolidos
+Dim totalProcessosGravados
+Dim totalDiamEspGravados
+Dim totalErros
+
+' ============================================================
+' INICIALIZACAO
+' ============================================================
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim docPrincipal
+    Dim produtoPrincipal
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set pecasProcessadas = CreateObject("Scripting.Dictionary")
+    pecasProcessadas.CompareMode = 1
+
+    totalPecas = 0
+    totalChapas = 0
+    totalDobras = 0
+    totalLaser = 0
+    totalSolidos = 0
+    totalProcessosGravados = 0
+    totalDiamEspGravados = 0
+    totalErros = 0
+
+    Set docPrincipal = CATIA.ActiveDocument
+
+    If Err.Number <> 0 Or docPrincipal Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If TypeName(docPrincipal) <> "ProductDocument" Then
+        MsgBox "Abra um CATProduct antes de executar a macro."
+        Exit Sub
+    End If
+
+    pastaPrincipal = fso.GetParentFolderName(docPrincipal.FullName)
+    If pastaPrincipal = "" Then
+        MsgBox "Salve o CATProduct antes de executar a macro."
+        Exit Sub
+    End If
+
+    caminhoRelatorio = pastaPrincipal & "\RELATORIO_PROCESSO.txt"
+    Set arquivoLog = fso.CreateTextFile(caminhoRelatorio, True)
+
+    EscreverLog "================================================"
+    EscreverLog "ANALISE E GRAVACAO DA PROPRIEDADE PROCESSO"
+    EscreverLog "CATIA V5-6R2021"
+    EscreverLog "DESTINO: Product.UserRefProperties"
+    EscreverLog "PROPRIEDADES: PROCESSO e DIAM_ESP"
+    EscreverLog "================================================"
+    EscreverLog "CONJUNTO: " & docPrincipal.FullName
+    EscreverLog "Esta macro nao exporta STEP/DXF."
+    EscreverLog "Solidos convencionais nao terao propriedades alteradas."
+    EscreverLog ""
+
+    Set produtoPrincipal = docPrincipal.Product
+    EscreverLog "INICIANDO PERCURSO DA ARVORE..."
+    PercorrerConjunto produtoPrincipal
+
+    EscreverLog ""
+    EscreverLog "================================================"
+    EscreverLog "RESUMO FINAL"
+    EscreverLog "================================================"
+    EscreverLog "Pecas analisadas: " & totalPecas
+    EscreverLog "Pecas de chapa: " & totalChapas
+    EscreverLog "Chapas sem dobra (LASER): " & totalLaser
+    EscreverLog "Chapas com dobra (LASER + DOBRA): " & totalDobras
+    EscreverLog "Solidos convencionais ignorados: " & totalSolidos
+    EscreverLog "Propriedades PROCESSO gravadas e salvas: " & totalProcessosGravados
+    EscreverLog "Propriedades DIAM_ESP gravadas e salvas: " & totalDiamEspGravados
+    EscreverLog "Erros: " & totalErros
+
+    arquivoLog.Close
+
+    MsgBox "ANALISE FINALIZADA!" & vbCrLf & vbCrLf & _
+           "Pecas analisadas: " & totalPecas & vbCrLf & _
+           "Pecas de chapa: " & totalChapas & vbCrLf & _
+           "Chapas sem dobra: " & totalLaser & vbCrLf & _
+           "Chapas com dobra: " & totalDobras & vbCrLf & _
+           "Solidos ignorados: " & totalSolidos & vbCrLf & _
+           "Propriedades PROCESSO gravadas: " & totalProcessosGravados & vbCrLf & _
+           "Propriedades DIAM_ESP gravadas: " & totalDiamEspGravados & vbCrLf & _
+           "Erros: " & totalErros & vbCrLf & vbCrLf & _
+           "Consulte o RELATORIO_PROCESSO.txt"
+
+End Sub
+
+' ============================================================
+' PERCORRER TODA A ARVORE DO PRODUCT
+' ============================================================
+
+Sub PercorrerConjunto(produto)
+
+    On Error Resume Next
+
+    Dim filhos
+    Dim filho
+    Dim referencia
+    Dim documento
+    Dim totalFilhos
+    Dim qtdSubFilhos
+    Dim i
+
+    Set filhos = produto.Products
+    totalFilhos = filhos.Count
+
+    For i = 1 To totalFilhos
+
+        Err.Clear
+        Set filho = filhos.Item(i)
+
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO LER COMPONENTE DA ARVORE."
+            totalErros = totalErros + 1
+            Err.Clear
+        Else
+            EscreverLog "ANALISANDO: " & filho.Name
+
+            Err.Clear
+            qtdSubFilhos = filho.Products.Count
+
+            If Err.Number = 0 Then
+                If qtdSubFilhos > 0 Then
+                    PercorrerConjunto filho
+                Else
+                    Err.Clear
+                    Set referencia = filho.ReferenceProduct
+
+                    If Err.Number = 0 Then
+                        Set documento = referencia.Parent
+
+                        If Err.Number = 0 Then
+                            If TypeName(documento) = "PartDocument" Then
+                                ProcessarPeca documento.FullName
+                            Else
+                                EscreverLog "COMPONENTE IGNORADO: " & filho.Name
+                            End If
+                        End If
+                    End If
+                End If
+            End If
+
+            Err.Clear
+        End If
+    Next
+
+End Sub
+
+
+' ============================================================
+' LOCALIZAR DOCUMENTO JA ABERTO
+' ============================================================
+
+Function LocalizarDocumento(caminho)
+
+    On Error Resume Next
+
+    Dim i
+    Dim doc
+
+    Set LocalizarDocumento = Nothing
+
+    For i = 1 To CATIA.Documents.Count
+        Err.Clear
+        Set doc = CATIA.Documents.Item(i)
+
+        If Err.Number = 0 Then
+            If LCase(doc.FullName) = LCase(caminho) Then
+                Set LocalizarDocumento = doc
+                Exit Function
+            End If
+        End If
+    Next
+
+End Function
+
+
+' ============================================================
+' PROCESSAR CATPART
+' ============================================================
+
+Sub ProcessarPeca(caminho)
+
+    On Error Resume Next
+
+    Dim docPeca
+    Dim chapa
+    Dim dobra
+    Dim documentoJaAberto
+    Dim valorProcessos
+    Dim propriedadeProcessosGravada
+    Dim propriedadeDiamEspGravada
+    Dim espessuraChapa
+    Dim espessuraEncontrada
+
+    caminho = Trim(caminho)
+    If caminho = "" Then Exit Sub
+    If pecasProcessadas.Exists(LCase(caminho)) Then Exit Sub
+
+    pecasProcessadas.Add LCase(caminho), True
+    totalPecas = totalPecas + 1
+
+    EscreverLog ""
+    EscreverLog "------------------------------------------------"
+    EscreverLog "PROCESSANDO: " & caminho
+
+    documentoJaAberto = False
+    Set docPeca = LocalizarDocumento(caminho)
+
+    If docPeca Is Nothing Then
+        Err.Clear
+        Set docPeca = CATIA.Documents.Open(caminho)
+        If Err.Number <> 0 Or docPeca Is Nothing Then
+            EscreverLog "ERRO AO ABRIR CATPART: " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+            Exit Sub
+        End If
+    Else
+        documentoJaAberto = True
+        EscreverLog "CATPART JA ESTAVA ABERTO."
+    End If
+
+    Err.Clear
+    docPeca.Part.Update
+    If Err.Number <> 0 Then
+        EscreverLog "AVISO NA ATUALIZACAO DA GEOMETRIA: " & Err.Description
+        Err.Clear
+    End If
+
+    chapa = False
+    dobra = False
+    IdentificarRecursos docPeca.Part, chapa, dobra
+
+    EscreverLog "IDENTIFICACAO DE CHAPA: " & CStr(chapa)
+    EscreverLog "IDENTIFICACAO DE DOBRA: " & CStr(dobra)
+
+    If Not chapa Then
+        totalSolidos = totalSolidos + 1
+        EscreverLog "CLASSIFICACAO: SOLIDO CONVENCIONAL."
+        EscreverLog "NENHUMA PROPRIEDADE FOI CRIADA OU ALTERADA."
+        FecharDocumentoSeNecessario docPeca, documentoJaAberto
+        Exit Sub
+    End If
+
+    totalChapas = totalChapas + 1
+
+    If dobra Then
+        valorProcessos = "LASER + DOBRA"
+        totalDobras = totalDobras + 1
+        EscreverLog "CLASSIFICACAO: LASER + DOBRA."
+    Else
+        valorProcessos = "LASER"
+        totalLaser = totalLaser + 1
+        EscreverLog "CLASSIFICACAO: LASER."
+    End If
+
+    ' Captura a espessura no parametro Thickness do Sheet Metal Parameter.
+    espessuraChapa = ""
+    espessuraEncontrada = ObterEspessuraChapa(docPeca.Part, espessuraChapa)
+
+    propriedadeDiamEspGravada = False
+
+    If espessuraEncontrada Then
+        EscreverLog "ESPESSURA CAPTURADA NO SHEET METAL PARAMETER: " & espessuraChapa
+        propriedadeDiamEspGravada = GravarPropriedadeTexto(docPeca, "DIAM_ESP", espessuraChapa)
+    Else
+        EscreverLog "ERRO: NAO FOI POSSIVEL CAPTURAR O PARAMETRO THICKNESS."
+        totalErros = totalErros + 1
+    End If
+
+    propriedadeProcessosGravada = GravarPropriedadeTexto(docPeca, "PROCESSO", valorProcessos)
+
+    ' Salva uma unica vez caso ao menos uma das propriedades tenha sido gravada.
+    If propriedadeProcessosGravada Or propriedadeDiamEspGravada Then
+        Err.Clear
+        docPeca.Save
+
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO SALVAR CATPART: " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+        Else
+            If propriedadeProcessosGravada Then
+                totalProcessosGravados = totalProcessosGravados + 1
+                EscreverLog "CATPART SALVO COM PROCESSO = " & valorProcessos
+            End If
+
+            If propriedadeDiamEspGravada Then
+                totalDiamEspGravados = totalDiamEspGravados + 1
+                EscreverLog "CATPART SALVO COM DIAM_ESP = " & espessuraChapa
+            End If
+        End If
+    End If
+
+    FecharDocumentoSeNecessario docPeca, documentoJaAberto
+
+End Sub
+
+ ' ============================================================
+' CAPTURAR ESPESSURA DO RECURSO SHEET METAL PARAMETER
+'
+' Localiza o parametro Sheet Metal Parameter.1\Thickness.
+' ValueAsString preserva a unidade apresentada pelo CATIA (ex.: 3mm).
+' ============================================================
+
+Function ObterEspessuraChapa(parte, ByRef valorEspessura)
+
+    On Error Resume Next
+
+    Dim parametros
+    Dim parametro
+    Dim i
+    Dim nomeParametro
+    Dim valorTexto
+
+    ObterEspessuraChapa = False
+    valorEspessura = ""
+
+    Err.Clear
+    Set parametros = parte.Parameters
+
+    If Err.Number <> 0 Or parametros Is Nothing Then
+        EscreverLog "ERRO AO ACESSAR PARAMETERS PARA LER THICKNESS: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    For i = 1 To parametros.Count
+        Err.Clear
+        Set parametro = parametros.Item(i)
+
+        If Err.Number = 0 And Not parametro Is Nothing Then
+            Err.Clear
+            nomeParametro = LCase(CStr(parametro.Name))
+
+            If Err.Number = 0 Then
+                If InStr(nomeParametro, "sheet metal parameter.1\thickness") > 0 Then
+                    Err.Clear
+                    valorTexto = CStr(parametro.ValueAsString)
+
+                    If Err.Number = 0 Then
+                        valorTexto = Trim(valorTexto)
+
+                        If valorTexto <> "" Then
+                            valorEspessura = valorTexto
+                            ObterEspessuraChapa = True
+                            Exit Function
+                        End If
+                    End If
+
+                    EscreverLog "ERRO AO LER ValueAsString DO PARAMETRO THICKNESS: " & Err.Description
+                    Err.Clear
+                End If
+            End If
+        End If
+    Next
+
+End Function
+
+
+' ============================================================
+' LOCALIZAR USERREFPROPERTY PELO NOME FINAL
+' O CATIA pode retornar nome qualificado, como Produto\Properties\PROCESSO.
+' ============================================================
+
+Sub LocalizarUserProperty(propriedades, nomeProcurado, _
+                          ByRef propriedadeEncontrada, _
+                          ByRef nomeCompletoEncontrado)
+
+    On Error Resume Next
+
+    Dim i
+    Dim itemAtual
+    Dim nomeAtual
+    Dim nomeFinal
+    Dim posicaoBarra
+
+    Set propriedadeEncontrada = Nothing
+    nomeCompletoEncontrado = ""
+
+    For i = 1 To propriedades.Count
+        Err.Clear
+        Set itemAtual = propriedades.Item(i)
+
+        If Err.Number = 0 And Not itemAtual Is Nothing Then
+            Err.Clear
+            nomeAtual = CStr(itemAtual.Name)
+
+            If Err.Number = 0 Then
+                nomeFinal = nomeAtual
+                posicaoBarra = InStrRev(nomeAtual, "\")
+
+                If posicaoBarra > 0 Then
+                    nomeFinal = Mid(nomeAtual, posicaoBarra + 1)
+                End If
+
+                If UCase(nomeAtual) = UCase(nomeProcurado) Or _
+                   UCase(nomeFinal) = UCase(nomeProcurado) Then
+                    Set propriedadeEncontrada = itemAtual
+                    nomeCompletoEncontrado = nomeAtual
+                    Exit Sub
+                End If
+            End If
+        End If
+    Next
+
+End Sub
+
+
+' ============================================================
+' CRIAR OU ATUALIZAR PROPRIEDADE TEXTO EM PRODUCT.USERREFPROPERTIES
+' Utilizada para PROCESSO e DIAM_ESP. Nunca remove propriedades.
+' ============================================================
+
+Function GravarPropriedadeTexto(docPeca, nomeCampo, valor)
+
+    On Error Resume Next
+
+    Dim produto
+    Dim propriedades
+    Dim propriedade
+    Dim nomePropriedade
+    Dim valorLido
+
+    GravarPropriedadeTexto = False
+
+    Err.Clear
+    Set produto = docPeca.Product
+    If Err.Number <> 0 Or produto Is Nothing Then
+        EscreverLog "ERRO AO ACESSAR PRODUCT: " & Err.Description
+        totalErros = totalErros + 1
+        Err.Clear
+        Exit Function
+    End If
+
+    Err.Clear
+    Set propriedades = produto.UserRefProperties
+    If Err.Number <> 0 Or propriedades Is Nothing Then
+        EscreverLog "ERRO AO ACESSAR PRODUCT.USERREFPROPERTIES: " & Err.Description
+        totalErros = totalErros + 1
+        Err.Clear
+        Exit Function
+    End If
+
+    Set propriedade = Nothing
+    LocalizarUserProperty propriedades, nomeCampo, propriedade, nomePropriedade
+
+    If propriedade Is Nothing Then
+        Err.Clear
+        Set propriedade = propriedades.CreateString(nomeCampo, valor)
+
+        If Err.Number <> 0 Or propriedade Is Nothing Then
+            EscreverLog "ERRO AO CRIAR USERREFPROPERTY " & nomeCampo & ": " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+            Exit Function
+        End If
+
+        EscreverLog "USERREFPROPERTY " & nomeCampo & " CRIADA."
+    Else
+        EscreverLog "USERREFPROPERTY " & nomeCampo & " JA EXISTIA; ATUALIZANDO VALOR."
+
+        Err.Clear
+        propriedade.Value = valor
+
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO ATUALIZAR " & nomeCampo & ": " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+            Exit Function
+        End If
+    End If
+
+    Err.Clear
+    valorLido = CStr(propriedade.Value)
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO CONFERIR VALOR EM MEMORIA: " & Err.Description
+        totalErros = totalErros + 1
+        Err.Clear
+        Exit Function
+    End If
+
+    If valorLido <> valor Then
+        EscreverLog "ERRO: VALOR DIVERGENTE. ESPERADO: " & valor & _
+                    " | ENCONTRADO: " & valorLido
+        totalErros = totalErros + 1
+        Exit Function
+    End If
+
+    Err.Clear
+    nomePropriedade = CStr(propriedade.Name)
+    If Err.Number = 0 Then
+        EscreverLog "NOME DA PROPRIEDADE NO CATIA: " & nomePropriedade
+    Else
+        Err.Clear
+    End If
+
+    EscreverLog "VALOR ATRIBUIDO A " & nomeCampo & ": " & valorLido
+    GravarPropriedadeTexto = True
+
+End Function
+
+
+' ============================================================
+' IDENTIFICAR RECURSOS DE CHAPA E DOBRA
+'
+' A leitura de Parameters abaixo e somente dos parametros dos
+' recursos geometricos do CATIA para reconhecer chapa/dobra.
+' ============================================================
+
+Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
+
+    On Error Resume Next
+
+    Dim parametros
+    Dim parametro
+    Dim i
+    Dim nome
+
+    possuiChapa = False
+    possuiDobra = False
+
+    Set parametros = parte.Parameters
+
+    For i = 1 To parametros.Count
+        Err.Clear
+        Set parametro = parametros.Item(i)
+
+        If Err.Number = 0 Then
+            nome = LCase(parametro.Name)
+
+            If InStr(nome, "sheet metal parameter.1\thickness") > 0 Then
+                possuiChapa = True
+            End If
+
+            If InStr(nome, "wall on edge with bend") > 0 Then
+                If InStr(nome, "with bend") > 0 Then
+                    If parametro.Value = True Then
+                        possuiDobra = True
+                    End If
+                End If
+            End If
+        End If
+    Next
+
+End Sub
+
+
+' ============================================================
+' FECHAR DOCUMENTO QUANDO ABERTO PELA MACRO
+' ============================================================
+
+Sub FecharDocumentoSeNecessario(docPeca, documentoJaAberto)
+
+    On Error Resume Next
+
+    If Not documentoJaAberto Then
+        Err.Clear
+        docPeca.Close
+
+        If Err.Number <> 0 Then
+            EscreverLog "AVISO AO FECHAR CATPART: " & Err.Description
+            Err.Clear
+        End If
+    End If
+
+End Sub
+
+
+' ============================================================
+' ESCREVER RELATORIO
+' ============================================================
+
+Sub EscreverLog(mensagem)
+
+    On Error Resume Next
+
+    arquivoLog.WriteLine Now & " - " & mensagem
+
+End Sub

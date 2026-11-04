@@ -1,0 +1,760 @@
+Option Explicit
+
+' ============================================================
+' EXPORTACAO AUTOMATICA DE CHAPAS
+' CATIA V5-6R2021 - Generative Sheetmetal Design
+'
+' CHAPAS:
+'   Exporta STEP e DXF planificado.
+'
+' SOLIDOS CONVENCIONAIS:
+'   Nao exporta STEP nem DXF.
+'   Remove arquivos STEP/DXF antigos com o mesmo nome.
+'
+' IMPORTANTE:
+'   Esta versao nao executa operacoes em propriedades ou parametros
+'   personalizados do CATPart.
+'
+' IDENTIFICACAO:
+'   A leitura de Part.Parameters e mantida exclusivamente para
+'   identificar os recursos geometricos de chapa e dobra.
+'
+' ORIENTACAO DXF:
+'   Utiliza os eixos H e V do primeiro Sketch do PartBody.
+' ============================================================
+
+Dim fso
+Dim pecasProcessadas
+Dim arquivoLog
+
+Dim pastaPrincipal
+Dim pastaDXF
+Dim pastaSTEP
+Dim caminhoRelatorio
+
+Dim totalPecas
+Dim totalChapas
+Dim totalDobras
+Dim totalLaser
+Dim totalSTEP
+Dim totalDXF
+Dim totalSolidos
+Dim totalErros
+
+
+' ============================================================
+' INICIALIZACAO
+' ============================================================
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim docPrincipal
+    Dim produtoPrincipal
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set pecasProcessadas = CreateObject("Scripting.Dictionary")
+    pecasProcessadas.CompareMode = 1
+
+    totalPecas = 0
+    totalChapas = 0
+    totalDobras = 0
+    totalLaser = 0
+    totalSTEP = 0
+    totalDXF = 0
+    totalSolidos = 0
+    totalErros = 0
+
+    Set docPrincipal = CATIA.ActiveDocument
+
+    If Err.Number <> 0 Or docPrincipal Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If TypeName(docPrincipal) <> "ProductDocument" Then
+        MsgBox "Abra um CATProduct antes de executar a macro."
+        Exit Sub
+    End If
+
+    pastaPrincipal = fso.GetParentFolderName(docPrincipal.FullName)
+
+    If pastaPrincipal = "" Then
+        MsgBox "Salve o CATProduct antes de executar a macro."
+        Exit Sub
+    End If
+
+    pastaDXF = pastaPrincipal & "\DXF"
+    pastaSTEP = pastaPrincipal & "\STEP"
+    caminhoRelatorio = pastaPrincipal & "\RELATORIO_PROCESSAMENTO.txt"
+
+    If Not fso.FolderExists(pastaDXF) Then
+        Err.Clear
+        fso.CreateFolder pastaDXF
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta DXF: " & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    If Not fso.FolderExists(pastaSTEP) Then
+        Err.Clear
+        fso.CreateFolder pastaSTEP
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta STEP: " & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    Set arquivoLog = fso.CreateTextFile(caminhoRelatorio, True)
+
+    EscreverLog "================================================"
+    EscreverLog "EXPORTACAO AUTOMATICA DE CHAPAS"
+    EscreverLog "CATIA V5-6R2021"
+    EscreverLog "VERSAO SEM ROTINAS DE PROPRIEDADES"
+    EscreverLog "================================================"
+    EscreverLog "CONJUNTO: " & docPrincipal.FullName
+    EscreverLog ""
+
+    Set produtoPrincipal = docPrincipal.Product
+
+    EscreverLog "INICIANDO PERCURSO DA ARVORE..."
+    EscreverLog ""
+
+    PercorrerConjunto produtoPrincipal
+
+    EscreverLog ""
+    EscreverLog "================================================"
+    EscreverLog "RESUMO FINAL"
+    EscreverLog "================================================"
+    EscreverLog "Pecas analisadas: " & totalPecas
+    EscreverLog "Pecas de chapa: " & totalChapas
+    EscreverLog "Chapas sem dobra: " & totalLaser
+    EscreverLog "Chapas com dobra: " & totalDobras
+    EscreverLog "Solidos ignorados: " & totalSolidos
+    EscreverLog "STEP gerados: " & totalSTEP
+    EscreverLog "DXF gerados: " & totalDXF
+    EscreverLog "Erros: " & totalErros
+
+    arquivoLog.Close
+
+    MsgBox "PROCESSAMENTO FINALIZADO!" & vbCrLf & vbCrLf & _
+           "Pecas analisadas: " & totalPecas & vbCrLf & _
+           "Pecas de chapa: " & totalChapas & vbCrLf & _
+           "Chapas sem dobra: " & totalLaser & vbCrLf & _
+           "Chapas com dobra: " & totalDobras & vbCrLf & _
+           "Solidos ignorados: " & totalSolidos & vbCrLf & _
+           "STEP gerados: " & totalSTEP & vbCrLf & _
+           "DXF gerados: " & totalDXF & vbCrLf & _
+           "Erros: " & totalErros & vbCrLf & vbCrLf & _
+           "Consulte o RELATORIO_PROCESSAMENTO.txt"
+
+End Sub
+
+
+' ============================================================
+' PERCORRER TODA A ARVORE DO PRODUCT
+' ============================================================
+
+Sub PercorrerConjunto(produto)
+
+    On Error Resume Next
+
+    Dim filhos
+    Dim filho
+    Dim referencia
+    Dim documento
+    Dim totalFilhos
+    Dim qtdSubFilhos
+    Dim i
+
+    Set filhos = produto.Products
+    totalFilhos = filhos.Count
+
+    For i = 1 To totalFilhos
+
+        Err.Clear
+        Set filho = filhos.Item(i)
+
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO LER COMPONENTE DA ARVORE."
+            totalErros = totalErros + 1
+            Err.Clear
+        Else
+            EscreverLog "ANALISANDO: " & filho.Name
+
+            Err.Clear
+            qtdSubFilhos = filho.Products.Count
+
+            If Err.Number = 0 Then
+                If qtdSubFilhos > 0 Then
+                    PercorrerConjunto filho
+                Else
+                    Err.Clear
+                    Set referencia = filho.ReferenceProduct
+
+                    If Err.Number = 0 Then
+                        Set documento = referencia.Parent
+
+                        If Err.Number = 0 Then
+                            If TypeName(documento) = "PartDocument" Then
+                                ProcessarPeca documento.FullName
+                            Else
+                                EscreverLog "COMPONENTE IGNORADO: " & filho.Name
+                            End If
+                        End If
+                    End If
+                End If
+            End If
+
+            Err.Clear
+        End If
+    Next
+
+End Sub
+
+
+' ============================================================
+' LOCALIZAR DOCUMENTO JA ABERTO
+' ============================================================
+
+Function LocalizarDocumento(caminho)
+
+    On Error Resume Next
+
+    Dim i
+    Dim doc
+
+    Set LocalizarDocumento = Nothing
+
+    For i = 1 To CATIA.Documents.Count
+        Err.Clear
+        Set doc = CATIA.Documents.Item(i)
+
+        If Err.Number = 0 Then
+            If LCase(doc.FullName) = LCase(caminho) Then
+                Set LocalizarDocumento = doc
+                Exit Function
+            End If
+        End If
+    Next
+
+End Function
+
+
+' ============================================================
+' PROCESSAR CATPART
+' ============================================================
+
+Sub ProcessarPeca(caminho)
+
+    On Error Resume Next
+
+    Dim docPeca
+    Dim nomePeca
+    Dim caminhoSTEP
+    Dim caminhoDXF
+    Dim chapa
+    Dim dobra
+    Dim documentoJaAberto
+
+    caminho = Trim(caminho)
+
+    If caminho = "" Then Exit Sub
+    If pecasProcessadas.Exists(LCase(caminho)) Then Exit Sub
+
+    pecasProcessadas.Add LCase(caminho), True
+    totalPecas = totalPecas + 1
+
+    EscreverLog ""
+    EscreverLog "------------------------------------------------"
+    EscreverLog "PROCESSANDO: " & caminho
+
+    documentoJaAberto = False
+    Set docPeca = LocalizarDocumento(caminho)
+
+    If docPeca Is Nothing Then
+        Err.Clear
+        Set docPeca = CATIA.Documents.Open(caminho)
+
+        If Err.Number <> 0 Or docPeca Is Nothing Then
+            EscreverLog "ERRO AO ABRIR CATPART: " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+            Exit Sub
+        End If
+    Else
+        documentoJaAberto = True
+    End If
+
+    nomePeca = fso.GetBaseName(caminho)
+    caminhoSTEP = pastaSTEP & "\" & nomePeca & ".stp"
+    caminhoDXF = pastaDXF & "\" & nomePeca & ".dxf"
+
+    ' Atualizar geometria antes da identificacao e exportacao.
+    Err.Clear
+    docPeca.Part.Update
+
+    If Err.Number <> 0 Then
+        EscreverLog "AVISO: falha na atualizacao da geometria: " & Err.Description
+        Err.Clear
+    End If
+
+    ' Identificar chapa e dobra pelos recursos geometricos.
+    chapa = False
+    dobra = False
+
+    IdentificarRecursos docPeca.Part, chapa, dobra
+
+    EscreverLog "IDENTIFICACAO DE CHAPA: " & CStr(chapa)
+    EscreverLog "IDENTIFICACAO DE DOBRA: " & CStr(dobra)
+
+    ' Solido convencional: nao exportar e remover exportacoes antigas.
+    If Not chapa Then
+
+        totalSolidos = totalSolidos + 1
+        EscreverLog "CLASSIFICACAO: SOLIDO CONVENCIONAL"
+
+        If fso.FileExists(caminhoSTEP) Then
+            Err.Clear
+            fso.DeleteFile caminhoSTEP, True
+            If Err.Number <> 0 Then
+                EscreverLog "ERRO AO REMOVER STEP ANTIGO: " & Err.Description
+                totalErros = totalErros + 1
+                Err.Clear
+            Else
+                EscreverLog "STEP ANTIGO REMOVIDO."
+            End If
+        End If
+
+        If fso.FileExists(caminhoDXF) Then
+            Err.Clear
+            fso.DeleteFile caminhoDXF, True
+            If Err.Number <> 0 Then
+                EscreverLog "ERRO AO REMOVER DXF ANTIGO: " & Err.Description
+                totalErros = totalErros + 1
+                Err.Clear
+            Else
+                EscreverLog "DXF ANTIGO REMOVIDO."
+            End If
+        End If
+
+        EscreverLog "STEP IGNORADO."
+        EscreverLog "DXF IGNORADO."
+
+        FecharDocumentoSeNecessario docPeca, documentoJaAberto
+        Exit Sub
+    End If
+
+    ' Classificar chapa apenas para o relatorio.
+    totalChapas = totalChapas + 1
+
+    If dobra Then
+        totalDobras = totalDobras + 1
+        EscreverLog "CLASSIFICACAO: CHAPA COM DOBRA"
+    Else
+        totalLaser = totalLaser + 1
+        EscreverLog "CLASSIFICACAO: CHAPA SEM DOBRA"
+    End If
+
+    ' Exportar STEP somente para chapas.
+    If fso.FileExists(caminhoSTEP) Then
+        Err.Clear
+        fso.DeleteFile caminhoSTEP, True
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO REMOVER STEP ANTERIOR: " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+        End If
+    End If
+
+    Err.Clear
+    docPeca.ExportData caminhoSTEP, "stp"
+
+    If Err.Number = 0 Then
+        If fso.FileExists(caminhoSTEP) Then
+            If fso.GetFile(caminhoSTEP).Size > 0 Then
+                totalSTEP = totalSTEP + 1
+                EscreverLog "STEP GERADO: " & caminhoSTEP
+            Else
+                EscreverLog "ERRO: STEP GERADO VAZIO."
+                totalErros = totalErros + 1
+            End If
+        Else
+            EscreverLog "ERRO: ARQUIVO STEP NAO ENCONTRADO."
+            totalErros = totalErros + 1
+        End If
+    Else
+        EscreverLog "ERRO STEP: " & Err.Description
+        totalErros = totalErros + 1
+        Err.Clear
+    End If
+
+    ' Gerar DXF planificado.
+    If fso.FileExists(caminhoDXF) Then
+        Err.Clear
+        fso.DeleteFile caminhoDXF, True
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO REMOVER DXF ANTERIOR: " & Err.Description
+            totalErros = totalErros + 1
+            Err.Clear
+        End If
+    End If
+
+    If GerarPlanificacaoDXF(docPeca, caminhoDXF) Then
+        totalDXF = totalDXF + 1
+        EscreverLog "DXF GERADO: " & caminhoDXF
+    Else
+        EscreverLog "ERRO AO GERAR DXF."
+        totalErros = totalErros + 1
+    End If
+
+    FecharDocumentoSeNecessario docPeca, documentoJaAberto
+
+End Sub
+
+
+' ============================================================
+' IDENTIFICAR RECURSOS DE CHAPA E DOBRA
+'
+' A leitura de Parameters abaixo e somente dos parametros dos
+' recursos geometricos do CATIA para reconhecer chapa/dobra.
+' Nenhuma propriedade personalizada e consultada ou modificada.
+' ============================================================
+
+Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
+
+    On Error Resume Next
+
+    Dim parametros
+    Dim parametro
+    Dim i
+    Dim nome
+
+    possuiChapa = False
+    possuiDobra = False
+
+    Set parametros = parte.Parameters
+
+    For i = 1 To parametros.Count
+        Err.Clear
+        Set parametro = parametros.Item(i)
+
+        If Err.Number = 0 Then
+            nome = LCase(parametro.Name)
+
+            If InStr(nome, "sheet metal parameter.1\thickness") > 0 Then
+                possuiChapa = True
+            End If
+
+            If InStr(nome, "wall on edge with bend") > 0 Then
+                If InStr(nome, "with bend") > 0 Then
+                    If parametro.Value = True Then
+                        possuiDobra = True
+                    End If
+                End If
+            End If
+        End If
+    Next
+
+End Sub
+
+
+' ============================================================
+' LOCALIZAR O PRIMEIRO SKETCH DO PARTBODY
+' ============================================================
+
+Function ObterPlanoPrimeiroSketchPartBody(docPeca, _
+                                          ByRef x1, ByRef y1, ByRef z1, _
+                                          ByRef x2, ByRef y2, ByRef z2)
+
+    On Error Resume Next
+
+    Dim parte
+    Dim corpos
+    Dim corpo
+    Dim sketches
+    Dim sketch
+
+    ObterPlanoPrimeiroSketchPartBody = False
+
+    Err.Clear
+    Set parte = docPeca.Part
+    Set corpos = parte.Bodies
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO ACESSAR PART.BODIES: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Err.Clear
+    Set corpo = corpos.Item("PartBody")
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO LOCALIZAR PartBody: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Err.Clear
+    Set sketches = corpo.Sketches
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO ACESSAR SKETCHES DO PartBody: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    If sketches.Count = 0 Then
+        EscreverLog "ERRO: PartBody NAO POSSUI SKETCHES."
+        Exit Function
+    End If
+
+    Err.Clear
+    Set sketch = sketches.Item(1)
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO ACESSAR O PRIMEIRO SKETCH DO PartBody: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    EscreverLog "CORPO DE REFERENCIA: " & corpo.Name
+    EscreverLog "PRIMEIRO SKETCH DO PartBody: " & sketch.Name
+
+    If Not ExtrairEixosDoSketch(sketch, x1, y1, z1, x2, y2, z2) Then
+        EscreverLog "ERRO: NAO FOI POSSIVEL EXTRAIR OS EIXOS DO PRIMEIRO SKETCH."
+        Exit Function
+    End If
+
+    ObterPlanoPrimeiroSketchPartBody = True
+
+End Function
+
+
+' ============================================================
+' EXTRAIR E NORMALIZAR OS EIXOS ABSOLUTOS DO SKETCH
+' ============================================================
+
+Function ExtrairEixosDoSketch(sketch, _
+                              ByRef x1, ByRef y1, ByRef z1, _
+                              ByRef x2, ByRef y2, ByRef z2)
+
+    On Error Resume Next
+
+    Dim dados(8)
+    Dim moduloH
+    Dim moduloV
+    Dim produtoEscalar
+
+    ExtrairEixosDoSketch = False
+
+    Err.Clear
+    sketch.GetAbsoluteAxisData dados
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO OBTER EIXOS DO SKETCH: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    ' GetAbsoluteAxisData: 0..2 origem; 3..5 eixo H; 6..8 eixo V.
+    x1 = CDbl(dados(3))
+    y1 = CDbl(dados(4))
+    z1 = CDbl(dados(5))
+
+    x2 = CDbl(dados(6))
+    y2 = CDbl(dados(7))
+    z2 = CDbl(dados(8))
+
+    moduloH = Sqr(x1*x1 + y1*y1 + z1*z1)
+
+    If moduloH < 0.0000001 Then
+        EscreverLog "ERRO: EIXO H DO SKETCH INVALIDO."
+        Exit Function
+    End If
+
+    x1 = x1 / moduloH
+    y1 = y1 / moduloH
+    z1 = z1 / moduloH
+
+    produtoEscalar = x1*x2 + y1*y2 + z1*z2
+
+    x2 = x2 - produtoEscalar*x1
+    y2 = y2 - produtoEscalar*y1
+    z2 = z2 - produtoEscalar*z1
+
+    moduloV = Sqr(x2*x2 + y2*y2 + z2*z2)
+
+    If moduloV < 0.0000001 Then
+        EscreverLog "ERRO: EIXO V DO SKETCH INVALIDO."
+        Exit Function
+    End If
+
+    x2 = x2 / moduloV
+    y2 = y2 / moduloV
+    z2 = z2 / moduloV
+
+    EscreverLog "EIXO H: " & x1 & ", " & y1 & ", " & z1
+    EscreverLog "EIXO V: " & x2 & ", " & y2 & ", " & z2
+
+    ExtrairEixosDoSketch = True
+
+End Function
+
+
+' ============================================================
+' GERAR PLANIFICACAO E EXPORTAR DXF
+' ============================================================
+
+Function GerarPlanificacaoDXF(docPeca, caminhoDXF)
+
+    On Error Resume Next
+
+    Dim docDesenho
+    Dim folha
+    Dim vistas
+    Dim vista
+    Dim comportamento
+
+    Dim x1, y1, z1
+    Dim x2, y2, z2
+
+    GerarPlanificacaoDXF = False
+    Set docDesenho = Nothing
+
+    EscreverLog "IDENTIFICANDO O PRIMEIRO SKETCH DO PartBody."
+
+    If Not ObterPlanoPrimeiroSketchPartBody(docPeca, x1, y1, z1, x2, y2, z2) Then
+        EscreverLog "ERRO: NAO FOI POSSIVEL IDENTIFICAR O PLANO DO SKETCH."
+        Exit Function
+    End If
+
+    Err.Clear
+    Set docDesenho = CATIA.Documents.Add("Drawing")
+
+    If Err.Number <> 0 Or docDesenho Is Nothing Then
+        EscreverLog "ERRO AO CRIAR CATDRAWING: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Set folha = docDesenho.Sheets.ActiveSheet
+    Set vistas = folha.Views
+
+    Err.Clear
+    Set vista = vistas.Add("Vista Planificada")
+
+    If Err.Number <> 0 Or vista Is Nothing Then
+        EscreverLog "ERRO AO CRIAR VISTA: " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Function
+    End If
+
+    Set comportamento = vista.GenerativeBehavior
+
+    Err.Clear
+    comportamento.Document = docPeca
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO VINCULAR CATPART (" & Err.Number & "): " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Function
+    End If
+
+    EscreverLog "CATPART VINCULADO COM SUCESSO."
+
+    Err.Clear
+    comportamento.DefineUnfoldedView x1, y1, z1, x2, y2, z2
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO DEFINEUNFOLDVIEW: " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Function
+    End If
+
+    Err.Clear
+    vista.x = 150
+    vista.y = 150
+
+    If Err.Number <> 0 Then
+        EscreverLog "AVISO AO POSICIONAR VISTA: " & Err.Description
+        Err.Clear
+    End If
+
+    Err.Clear
+    comportamento.ForceUpdate
+    docDesenho.Update
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO ATUALIZAR VISTA: " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Function
+    End If
+
+    EscreverLog "EXPORTANDO DESENHO PARA DXF."
+
+    Err.Clear
+    docDesenho.ExportData caminhoDXF, "dxf"
+
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO EXPORTDATA DXF: " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Function
+    End If
+
+    If fso.FileExists(caminhoDXF) Then
+        If fso.GetFile(caminhoDXF).Size > 0 Then
+            GerarPlanificacaoDXF = True
+        Else
+            EscreverLog "DXF GERADO COM TAMANHO ZERO."
+        End If
+    Else
+        EscreverLog "ARQUIVO DXF NAO ENCONTRADO."
+    End If
+
+    Err.Clear
+    docDesenho.Close
+
+End Function
+
+
+' ============================================================
+' FECHAR DOCUMENTO QUANDO ABERTO PELA MACRO
+' ============================================================
+
+Sub FecharDocumentoSeNecessario(docPeca, documentoJaAberto)
+
+    On Error Resume Next
+
+    If Not documentoJaAberto Then
+        Err.Clear
+        docPeca.Close
+
+        If Err.Number <> 0 Then
+            EscreverLog "AVISO AO FECHAR CATPART: " & Err.Description
+            Err.Clear
+        End If
+    End If
+
+End Sub
+
+
+' ============================================================
+' ESCREVER RELATORIO
+' ============================================================
+
+Sub EscreverLog(mensagem)
+
+    On Error Resume Next
+
+    arquivoLog.WriteLine Now & " - " & mensagem
+
+End Sub
