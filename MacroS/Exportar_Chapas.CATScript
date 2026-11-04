@@ -40,6 +40,7 @@ Dim totalSTEP
 Dim totalDXF
 Dim totalSolidos
 Dim totalErros
+Dim falhasExportacao
 
 
 ' ============================================================
@@ -56,6 +57,9 @@ Sub CATMain()
     Set fso = CreateObject("Scripting.FileSystemObject")
     Set pecasProcessadas = CreateObject("Scripting.Dictionary")
     pecasProcessadas.CompareMode = 1
+
+    Set falhasExportacao = CreateObject("Scripting.Dictionary")
+    falhasExportacao.CompareMode = 1
 
     totalPecas = 0
     totalChapas = 0
@@ -136,6 +140,20 @@ Sub CATMain()
     EscreverLog "STEP gerados: " & totalSTEP
     EscreverLog "DXF gerados: " & totalDXF
     EscreverLog "Erros: " & totalErros
+    EscreverLog ""
+    EscreverLog "================================================"
+    EscreverLog "ARQUIVOS COM FALHA NA EXPORTACAO STEP/DXF"
+    EscreverLog "================================================"
+    EscreverLog "Quantidade de arquivos: " & falhasExportacao.Count
+
+    If falhasExportacao.Count = 0 Then
+        EscreverLog "Nenhuma falha de exportacao registrada."
+    Else
+        Dim chaveFalha
+        For Each chaveFalha In falhasExportacao.Keys
+            EscreverLog falhasExportacao.Item(chaveFalha)
+        Next
+    End If
 
     arquivoLog.Close
 
@@ -258,6 +276,7 @@ Sub ProcessarPeca(caminho)
     Dim chapa
     Dim dobra
     Dim documentoJaAberto
+    Dim motivoSTEP
 
     caminho = Trim(caminho)
 
@@ -378,15 +397,19 @@ Sub ProcessarPeca(caminho)
                 totalSTEP = totalSTEP + 1
                 EscreverLog "STEP GERADO: " & caminhoSTEP
             Else
-                EscreverLog "ERRO: STEP GERADO VAZIO."
+                EscreverLog "ERRO: STEP GERADO VAZIO: " & caminhoSTEP
+                RegistrarFalhaExportacao caminhoSTEP, "STEP", "Arquivo gerado com tamanho zero."
                 totalErros = totalErros + 1
             End If
         Else
-            EscreverLog "ERRO: ARQUIVO STEP NAO ENCONTRADO."
+            EscreverLog "ERRO: ARQUIVO STEP NAO ENCONTRADO: " & caminhoSTEP
+            RegistrarFalhaExportacao caminhoSTEP, "STEP", "Arquivo nao encontrado apos ExportData."
             totalErros = totalErros + 1
         End If
     Else
-        EscreverLog "ERRO STEP: " & Err.Description
+        motivoSTEP = Err.Description
+        EscreverLog "ERRO STEP: " & motivoSTEP
+        RegistrarFalhaExportacao caminhoSTEP, "STEP", motivoSTEP
         totalErros = totalErros + 1
         Err.Clear
     End If
@@ -406,7 +429,8 @@ Sub ProcessarPeca(caminho)
         totalDXF = totalDXF + 1
         EscreverLog "DXF GERADO: " & caminhoDXF
     Else
-        EscreverLog "ERRO AO GERAR DXF."
+        EscreverLog "ERRO AO GERAR DXF: " & caminhoDXF
+        RegistrarFalhaExportacao caminhoDXF, "DXF", "Falha na geracao ou exportacao do desenho planificado. Consulte os detalhes anteriores no relatorio."
         totalErros = totalErros + 1
     End If
 
@@ -756,5 +780,28 @@ Sub EscreverLog(mensagem)
     On Error Resume Next
 
     arquivoLog.WriteLine Now & " - " & mensagem
+
+End Sub
+
+
+' ============================================================
+' REGISTRAR ARQUIVOS COM FALHA NA EXPORTACAO
+' ============================================================
+
+Sub RegistrarFalhaExportacao(caminhoArquivo, tipoArquivo, detalhe)
+
+    On Error Resume Next
+
+    Dim chave
+    Dim registro
+
+    chave = LCase(Trim(caminhoArquivo))
+    registro = tipoArquivo & " | " & caminhoArquivo & " | " & detalhe
+
+    If falhasExportacao.Exists(chave) Then
+        falhasExportacao.Item(chave) = falhasExportacao.Item(chave) & " / " & detalhe
+    Else
+        falhasExportacao.Add chave, registro
+    End If
 
 End Sub

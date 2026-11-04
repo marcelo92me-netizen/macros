@@ -1,0 +1,588 @@
+
+' ================================================================
+' ANALISE_DIMENSOES_TOTAIS.CATScript
+'
+' CATIA V5-6R2021
+'
+' OBJETIVO:
+'   Calcular dimensoes totais de um CATPart em:
+'     1. Eixos globais X, Y e Z
+'     2. Eixos principais de inercia
+'
+'   Atualizar propriedades:
+'     COMP
+'     LARG
+'     ALT
+'     DIM_PRINCIPAL_1
+'     DIM_PRINCIPAL_2
+'     DIM_PRINCIPAL_3
+'     PESO (somente com densidade valida)
+'
+' IMPORTANTE:
+'   Dimensoes em mm.
+'   Massa em kg.
+' ================================================================
+
+Option Explicit
+
+Dim CATIA
+Dim doc
+Dim part
+Dim body
+Dim spa
+Dim inertia
+Dim densidade
+Dim massa
+Dim dimsGlobal
+Dim dimsPrincipal
+Dim relatorio
+Dim pesoValido
+Dim pesoTexto
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Set CATIA = GetObject(, "CATIA.Application")
+    If Err.Number <> 0 Then
+        MsgBox "Nao foi possivel acessar o CATIA.", vbCritical
+        Exit Sub
+    End If
+
+    Set doc = CATIA.ActiveDocument
+
+    If TypeName(doc) <> "PartDocument" Then
+        MsgBox "Abra um CATPart antes de executar a macro.", vbExclamation
+        Exit Sub
+    End If
+
+    Set part = doc.Part
+    Set body = part.MainBody
+
+    If body.Shapes.Count = 0 Then
+        MsgBox "O MainBody nao possui geometria para analisar.", vbExclamation
+        Exit Sub
+    End If
+
+    part.Update
+
+    Set spa = doc.GetWorkbench("SPAWorkbench")
+
+    ' ------------------------------------------------------------
+    ' 1. CALCULO DOS EIXOS GLOBAIS
+    ' ------------------------------------------------------------
+
+    dimsGlobal = CalcularBoundingBox(part, doc, body, 1)
+
+    If Err.Number <> 0 Then
+        MsgBox "ERRO NO CALCULO GLOBAL:" & vbCrLf & _
+               Err.Description, vbCritical
+        LimparTemporarios
+        Exit Sub
+    End If
+
+    ' ------------------------------------------------------------
+    ' 2. CALCULO DOS EIXOS PRINCIPAIS
+    ' ------------------------------------------------------------
+
+    dimsPrincipal = CalcularBoundingBox(part, doc, body, 2)
+
+    If Err.Number <> 0 Then
+        MsgBox "ERRO NO CALCULO DOS EIXOS PRINCIPAIS:" & vbCrLf & _
+               Err.Description, vbCritical
+        LimparTemporarios
+        Exit Sub
+    End If
+
+    ' ------------------------------------------------------------
+    ' 3. CALCULO DA MASSA E DENSIDADE
+    ' ------------------------------------------------------------
+
+    Set inertia = spa.Inertias.Add(body)
+
+    If Err.Number <> 0 Then
+        MsgBox "Nao foi possivel calcular a inercia da peca:" & _
+               vbCrLf & Err.Description, vbCritical
+        LimparTemporarios
+        Exit Sub
+    End If
+
+    massa = inertia.Mass
+    densidade = inertia.Density
+
+    pesoValido = False
+
+    If densidade > 0 And densidade <> 1 Then
+        pesoValido = True
+    End If
+
+    ' ------------------------------------------------------------
+    ' 4. ATUALIZACAO DAS PROPRIEDADES
+    ' ------------------------------------------------------------
+
+    AtualizarPropriedade "COMP", Formatar(dimsGlobal(0))
+    AtualizarPropriedade "LARG", Formatar(dimsGlobal(1))
+    AtualizarPropriedade "ALT", Formatar(dimsGlobal(2))
+
+    AtualizarPropriedade "DIM_PRINCIPAL_1", _
+                         Formatar(dimsPrincipal(0))
+
+    AtualizarPropriedade "DIM_PRINCIPAL_2", _
+                         Formatar(dimsPrincipal(1))
+
+    AtualizarPropriedade "DIM_PRINCIPAL_3", _
+                         Formatar(dimsPrincipal(2))
+
+    If pesoValido Then
+
+        AtualizarPropriedade "PESO", Formatar(massa)
+
+        pesoTexto = Formatar(massa) & " kg"
+
+    Else
+
+        pesoTexto = "NAO ATUALIZADO - DENSIDADE NAO VALIDADA"
+
+    End If
+
+    ' ------------------------------------------------------------
+    ' 5. REMOCAO DA ANALISE DE INERCIA
+    ' ------------------------------------------------------------
+
+    spa.Inertias.Remove inertia.Name
+
+    Set inertia = Nothing
+
+    ' ------------------------------------------------------------
+    ' 6. LIMPEZA DAS GEOMETRIAS AUXILIARES
+    ' ------------------------------------------------------------
+
+    LimparTemporarios
+
+    part.Update
+
+    ' ------------------------------------------------------------
+    ' 7. RELATORIO FINAL
+    ' ------------------------------------------------------------
+
+    relatorio = "====================================" & vbCrLf
+    relatorio = relatorio & " ANALISE DIMENSIONAL CATIA V5" & vbCrLf
+    relatorio = relatorio & "====================================" & vbCrLf & vbCrLf
+
+    relatorio = relatorio & "PECA: " & doc.Name & vbCrLf & vbCrLf
+
+    relatorio = relatorio & "SISTEMA GLOBAL" & vbCrLf
+    relatorio = relatorio & "X / COMP: " & Formatar(dimsGlobal(0)) & " mm" & vbCrLf
+    relatorio = relatorio & "Y / LARG: " & Formatar(dimsGlobal(1)) & " mm" & vbCrLf
+    relatorio = relatorio & "Z / ALT:  " & Formatar(dimsGlobal(2)) & " mm" & vbCrLf & vbCrLf
+
+    relatorio = relatorio & "EIXOS PRINCIPAIS DE INERCIA" & vbCrLf
+    relatorio = relatorio & "Eixo 1: " & Formatar(dimsPrincipal(0)) & " mm" & vbCrLf
+    relatorio = relatorio & "Eixo 2: " & Formatar(dimsPrincipal(1)) & " mm" & vbCrLf
+    relatorio = relatorio & "Eixo 3: " & Formatar(dimsPrincipal(2)) & " mm" & vbCrLf & vbCrLf
+
+    relatorio = relatorio & "MASSA: " & pesoTexto & vbCrLf
+    relatorio = relatorio & "DENSIDADE: " & CStr(densidade) & " kg/m3" & vbCrLf & vbCrLf
+
+    relatorio = relatorio & "PROPRIEDADES ATUALIZADAS." & vbCrLf
+    relatorio = relatorio & "===================================="
+
+    MsgBox relatorio, vbInformation, "Analise dimensional"
+
+End Sub
+
+
+' ================================================================
+' CALCULO DA BOUNDING BOX
+'
+' MODO 1 = EIXOS GLOBAIS
+' MODO 2 = EIXOS PRINCIPAIS
+' ================================================================
+
+Function CalcularBoundingBox(oPart, oDoc, oBody, modo)
+
+    Dim hb
+    Dim hsf
+    Dim eixos(2)
+    Dim extremidades(5)
+    Dim planos(5)
+    Dim resultados(2)
+    Dim cog(2)
+    Dim pa(8)
+    Dim paCorr(8)
+    Dim refBody
+    Dim i
+    Dim minmax
+
+    Set hb = oPart.HybridBodies.Add()
+
+    If modo = 1 Then
+        hb.Name = "TMP_ANALISE_GLOBAL"
+    Else
+        hb.Name = "TMP_ANALISE_PRINCIPAL"
+    End If
+
+    Set hsf = oPart.HybridShapeFactory
+
+    If modo = 1 Then
+
+        CriarEixosGlobais hsf, hb, eixos
+
+    Else
+
+        ObterDadosPrincipais oDoc, oBody, cog, pa
+
+        CorrigirEixosPrincipais pa, paCorr
+
+        CriarEixosPrincipais hsf, hb, cog, paCorr, eixos
+
+    End If
+
+    oPart.Update
+
+    Set refBody = oPart.CreateReferenceFromObject(oBody)
+
+    ' Criacao dos seis extremos
+
+    For i = 0 To 5
+
+        If i Mod 2 = 0 Then
+            minmax = 1
+        Else
+            minmax = 0
+        End If
+
+        Select Case i
+
+            Case 0, 1
+                Set extremidades(i) = CriarExtremo( _
+                    hsf, refBody, eixos(0), eixos(1), eixos(2), minmax)
+
+            Case 2, 3
+                Set extremidades(i) = CriarExtremo( _
+                    hsf, refBody, eixos(1), eixos(2), eixos(0), minmax)
+
+            Case 4, 5
+                Set extremidades(i) = CriarExtremo( _
+                    hsf, refBody, eixos(2), eixos(0), eixos(1), minmax)
+
+        End Select
+
+        hb.AppendHybridShape extremidades(i)
+        extremidades(i).Name = "TMP_EXTREMO_" & CStr(i + 1)
+
+    Next
+
+    oPart.Update
+
+    ' Criacao dos planos limitadores
+
+    For i = 0 To 5
+
+        Select Case i
+            Case 0, 1
+                Set planos(i) = hsf.AddNewPlaneNormal( _
+                    eixos(0), extremidades(i))
+
+            Case 2, 3
+                Set planos(i) = hsf.AddNewPlaneNormal( _
+                    eixos(1), extremidades(i))
+
+            Case 4, 5
+                Set planos(i) = hsf.AddNewPlaneNormal( _
+                    eixos(2), extremidades(i))
+        End Select
+
+        hb.AppendHybridShape planos(i)
+        planos(i).Name = "TMP_PLANO_" & CStr(i + 1)
+
+    Next
+
+    oPart.Update
+
+    ' Medicao das distancias entre planos paralelos
+
+    Dim measurable
+
+    For i = 0 To 2
+
+        Set measurable = oDoc.GetWorkbench("SPAWorkbench").GetMeasurable( _
+            oPart.CreateReferenceFromObject(planos(i * 2)))
+
+        resultados(i) = measurable.GetMinimumDistance( _
+            oPart.CreateReferenceFromObject(planos(i * 2 + 1)))
+
+    Next
+
+    ' Retorno em milimetros
+
+    CalcularBoundingBox = resultados
+
+End Function
+
+
+' ================================================================
+' CRIACAO DOS EIXOS GLOBAIS
+' ================================================================
+
+Sub CriarEixosGlobais(hsf, hb, eixos)
+
+    Dim p1
+    Dim p2
+
+    ' EIXO X
+
+    Set p1 = hsf.AddNewPointCoord(-20000, 0, 0)
+    Set p2 = hsf.AddNewPointCoord(20000, 0, 0)
+
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+
+    Set eixos(0) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(0)
+
+    ' EIXO Y
+
+    Set p1 = hsf.AddNewPointCoord(0, -20000, 0)
+    Set p2 = hsf.AddNewPointCoord(0, 20000, 0)
+
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+
+    Set eixos(1) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(1)
+
+    ' EIXO Z
+
+    Set p1 = hsf.AddNewPointCoord(0, 0, -20000)
+    Set p2 = hsf.AddNewPointCoord(0, 0, 20000)
+
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+
+    Set eixos(2) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(2)
+
+End Sub
+
+
+' ================================================================
+' DADOS DE INERCIA E CENTRO DE GRAVIDADE
+' ================================================================
+
+Sub ObterDadosPrincipais(oDoc, oBody, cog, pa)
+
+    Dim oSPA
+    Dim oInertias
+    Dim oInertia
+
+    Set oSPA = oDoc.GetWorkbench("SPAWorkbench")
+    Set oInertias = oSPA.Inertias
+
+    oInertias.Add oBody
+
+    Set oInertia = oInertias.Item(1)
+
+    oInertia.GetCOGPosition cog
+    oInertia.GetPrincipalAxes pa
+
+    oInertias.Remove oInertia.Name
+
+    Set oInertia = Nothing
+    Set oInertias = Nothing
+    Set oSPA = Nothing
+
+End Sub
+
+
+' ================================================================
+' CORRECAO DA ORDEM DOS VETORES DOS EIXOS PRINCIPAIS
+' ================================================================
+
+Sub CorrigirEixosPrincipais(pa, corrigido)
+
+    corrigido(0) = pa(0)
+    corrigido(1) = pa(3)
+    corrigido(2) = pa(6)
+
+    corrigido(3) = pa(1)
+    corrigido(4) = pa(4)
+    corrigido(5) = pa(7)
+
+    corrigido(6) = pa(2)
+    corrigido(7) = pa(5)
+    corrigido(8) = pa(8)
+
+End Sub
+
+
+' ================================================================
+' CRIACAO DOS EIXOS PRINCIPAIS
+' ================================================================
+
+Sub CriarEixosPrincipais(hsf, hb, cog, pa, eixos)
+
+    Dim centro
+    Dim direcao
+    Dim plano
+
+    Set centro = hsf.AddNewPointCoord( _
+        cog(0) * 1000, cog(1) * 1000, cog(2) * 1000)
+
+    hb.AppendHybridShape centro
+
+    ' Primeiro eixo
+
+    Set direcao = hsf.AddNewDirectionByCoord( _
+        pa(0), pa(1), pa(2))
+
+    Set eixos(0) = hsf.AddNewLinePtDir( _
+        centro, direcao, 10000, -10000, True)
+
+    hb.AppendHybridShape eixos(0)
+
+    ' Segundo eixo
+
+    Set direcao = hsf.AddNewDirectionByCoord( _
+        pa(3), pa(4), pa(5))
+
+    Set eixos(1) = hsf.AddNewLinePtDir( _
+        centro, direcao, 10000, -10000, True)
+
+    hb.AppendHybridShape eixos(1)
+
+    ' Terceiro eixo, perpendicular aos dois anteriores
+
+    Set plano = hsf.AddNewPlane2Lines(eixos(0), eixos(1))
+    hb.AppendHybridShape plano
+
+    Set eixos(2) = hsf.AddNewLineNormal( _
+        plano, centro, 10000, -10000, True)
+
+    hb.AppendHybridShape eixos(2)
+
+End Sub
+
+
+' ================================================================
+' CRIACAO DO EXTREMO GEOMETRICO
+' ================================================================
+
+Function CriarExtremo(hsf, refBody, eixo1, eixo2, eixo3, minmax)
+
+    Dim d1
+    Dim d2
+    Dim d3
+    Dim ext
+
+    Set d1 = hsf.AddNewDirection(eixo1)
+    Set d2 = hsf.AddNewDirection(eixo2)
+    Set d3 = hsf.AddNewDirection(eixo3)
+
+    Set ext = hsf.AddNewExtremum(refBody, d1, minmax)
+
+    ext.Direction2 = d2
+    ext.ExtremumType2 = 1
+
+    ext.Direction3 = d3
+    ext.ExtremumType3 = 1
+
+    ext.Compute
+
+    Set CriarExtremo = ext
+
+End Function
+
+
+' ================================================================
+' ATUALIZACAO / CRIACAO DE PROPRIEDADES
+' ================================================================
+
+Sub AtualizarPropriedade(nome, valor)
+
+    Dim parametro
+
+    On Error Resume Next
+
+    Err.Clear
+
+    Set parametro = part.Parameters.Item(nome)
+
+    If Err.Number <> 0 Then
+
+        Err.Clear
+
+        Set parametro = part.Parameters.CreateString(nome, valor)
+
+    Else
+
+        parametro.Value = valor
+
+    End If
+
+    If Err.Number <> 0 Then
+
+        MsgBox "Falha ao atualizar propriedade: " & nome & vbCrLf & _
+               Err.Description, vbExclamation
+
+        Err.Clear
+
+    End If
+
+    On Error GoTo 0
+
+End Sub
+
+
+' ================================================================
+' FORMATACAO NUMERICA
+' ================================================================
+
+Function Formatar(valor)
+
+    Formatar = Replace(CStr(Round(valor, 3)), ",", ".")
+
+End Function
+
+
+' ================================================================
+' EXCLUSAO DOS ELEMENTOS TEMPORARIOS
+' ================================================================
+
+Sub LimparTemporarios()
+
+    Dim selecao
+    Dim temporario
+    Dim nomes(1)
+    Dim i
+
+    On Error Resume Next
+
+    nomes(0) = "TMP_ANALISE_GLOBAL"
+    nomes(1) = "TMP_ANALISE_PRINCIPAL"
+
+    Set selecao = doc.Selection
+
+    For i = 0 To 1
+
+        Err.Clear
+
+        Set temporario = part.HybridBodies.Item(nomes(i))
+
+        If Err.Number = 0 Then
+
+            selecao.Clear
+            selecao.Add temporario
+            selecao.Delete
+
+        End If
+
+    Next
+
+    selecao.Clear
+
+    Err.Clear
+
+    On Error GoTo 0
+
+End Sub
