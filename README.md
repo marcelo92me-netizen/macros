@@ -27,6 +27,10 @@ O projeto reúne ferramentas para:
 3. Atualizar campos de texto nomeados em um Drawing com dados do modelo 3D.
 4. Numerar os componentes diretos de um conjunto por meio da propriedade `ITEM`.
 5. Exportar a Bill of Materials (BOM) nativa do CATIA para HTML.
+6. Analisar dimensões globais e principais de uma peça, atualizar propriedades dimensionais e calcular a massa.
+7. Gerar um relatório de análise dimensional e estimativa do peso do bloco bruto sem alterar propriedades.
+8. Identificar chapas e gravar automaticamente `PROCESSO` e `DIAM_ESP`.
+9. Exportar arquivos STEP e DXF planificados das chapas de uma montagem.
 
 As rotinas foram escritas em CATScript/VBScript e usam objetos da automação COM do CATIA. A interface gráfica é um arquivo HTA executado pelo `mshta.exe`, que troca dados com as macros por meio de `resultado.txt`.
 
@@ -35,11 +39,16 @@ As rotinas foram escritas em CATScript/VBScript e usam objetos da automação CO
 | Arquivo | Finalidade |
 |---|---|
 | `AcessarProps.CATScript` | Abre o formulário de propriedades a partir de um Drawing, lê o modelo 3D associado, atualiza propriedades do modelo e textos específicos do Drawing e tenta salvar os documentos. |
+| `ANALISE_DIMENSOES.CATScript` | Calcula dimensões nos eixos globais e principais de inércia, atualiza propriedades dimensionais e `PESO` quando a densidade é válida. |
 | `BillOfMaterial.CATScript` | Exporta a BOM do conjunto ativo para um arquivo HTML na Área de Trabalho. |
+| `DefinirCorteLaser.CATScript` | Percorre a montagem e define `PROCESSO` e `DIAM_ESP` para peças de chapa; cria `RELATORIO_PROCESSO.txt` junto ao CATProduct. |
+| `Exportar_Chapas.CATScript` | Percorre a montagem e exporta STEP e DXF planificado das chapas para subpastas `STEP` e `DXF`, com relatório de processamento. |
 | `JanelaPropriedades.hta` | Interface gráfica para visualizar e editar propriedades nativas e personalizadas. |
 | `NumerarItens.CATScript` | Numera referências únicas entre os componentes diretos do conjunto ativo, gravando a propriedade personalizada `ITEM`. |
 | `Propriedades.CATScript` | Cria propriedades padrão ausentes no modelo ativo e, em um conjunto, processa o conjunto raiz e seus componentes diretos. |
 | `PropriedadesPeca.CATScript` | Abre o formulário a partir de uma peça ou de um componente selecionado na árvore de um conjunto e grava as propriedades retornadas. |
+| `RelatorioAnaliseDimensoes.CATScript` | Calcula dimensões globais/principais, massa e estimativa de peso do bloco bruto; grava um relatório TXT sem alterar propriedades do CATIA. |
+| `RelatorioAnaliseDimensoes.txt` | Exemplo/resultado de relatório da análise dimensional; é sobrescrito pela macro correspondente. |
 | `resultado.txt` | Arquivo de intercâmbio temporário entre os scripts CATScript e a janela HTA. O arquivo incluído no ZIP contém dados de exemplo/execução anterior e não deve ser tratado como configuração permanente. |
 
 ## Macros e funcionalidades
@@ -149,6 +158,55 @@ Colunas configuradas:
 
 A exportação utiliza o conversor nativo `BillOfMaterial` do CATIA. A disponibilidade e os nomes exibidos das propriedades dependem da configuração e da versão do CATIA.
 
+### `ANALISE_DIMENSOES.CATScript`
+
+**Objetivo:** calcular dimensões totais de um `CATPart` e atualizar propriedades do produto associado.
+
+- Exige um `CATPart` ativo com geometria em `MainBody`.
+- Calcula `COMP`, `LARG` e `ALT` nos eixos globais X, Y e Z, além de `DIM_PRINCIPAL_1`, `DIM_PRINCIPAL_2` e `DIM_PRINCIPAL_3` nos eixos principais de inércia. As dimensões são apresentadas em milímetros.
+- Calcula a massa pela análise de inércia e atualiza `PESO` somente quando a densidade é positiva e diferente de 1, condição usada pelo script para considerar a densidade válida.
+- Cria geometrias auxiliares temporárias para a bounding box e tenta removê-las ao final.
+- Exibe os resultados em uma caixa de mensagem; não gera relatório TXT.
+
+As propriedades são escritas no produto da peça. Revise os valores e salve o CATPart após a execução.
+
+### `RelatorioAnaliseDimensoes.CATScript`
+
+**Objetivo:** produzir um relatório dimensional e de massa para um `CATPart`, sem gravar propriedades no modelo.
+
+- Calcula as mesmas dimensões globais e principais e a massa.
+- Estima o peso do bloco bruto multiplicando o volume da bounding box global pela densidade; o valor é apresentado apenas quando a densidade é considerada válida.
+- Exibe o relatório e o grava em `RelatorioAnaliseDimensoes.txt`, no caminho absoluto definido na constante `CAMINHO_RELATORIO`.
+- Remove as geometrias auxiliares de análise ao final.
+
+**Atenção:** ajuste `CAMINHO_RELATORIO` para a instalação em uso. A macro sobrescreve o TXT indicado a cada execução.
+
+### `DefinirCorteLaser.CATScript`
+
+**Objetivo:** analisar recursivamente as peças de uma montagem e classificar peças de chapa para atualizar propriedades de processo e espessura.
+
+- Requer um `CATProduct` salvo. Percorre todos os níveis da árvore, processando referências de CATPart uma única vez.
+- Para chapas sem dobra, grava `PROCESSO = LASER`; para chapas com dobra, grava `PROCESSO = LASER + DOBRA`.
+- Lê `Thickness` do recurso Sheet Metal Parameter para preencher `DIAM_ESP`, preservando a unidade textual apresentada pelo CATIA.
+- Grava as propriedades como texto em `Product.UserRefProperties` e salva os CATParts quando alguma propriedade é gravada.
+- Ignora sólidos convencionais sem alterar suas propriedades. Não exporta STEP/DXF e não remove propriedades.
+- Cria/sobrescreve `RELATORIO_PROCESSO.txt` na pasta do CATProduct, com contagens, erros e resultados.
+
+A identificação depende dos recursos geométricos de chapa/dobra e do ambiente Generative Sheetmetal Design. Revise o relatório, especialmente entradas que não tiveram espessura identificada.
+
+### `Exportar_Chapas.CATScript`
+
+**Objetivo:** percorrer recursivamente um `CATProduct` salvo e exportar arquivos de fabricação das peças identificadas como chapa.
+
+- Cria as pastas `DXF` e `STEP` ao lado do CATProduct, se necessário.
+- Exporta cada chapa como STEP (`.stp`) e gera um DXF de planificação por meio de um Drawing temporário. A orientação do DXF usa os eixos H e V do primeiro Sketch de `PartBody`.
+- Usa o nome-base do arquivo CATPart para nomear os exports e processa cada caminho de peça uma única vez.
+- Classifica chapas sem dobra e com dobra apenas para o relatório; essa macro não atualiza propriedades CATIA.
+- Para sólidos convencionais, não gera exports e remove STEP/DXF antigos de mesmo nome nas pastas de saída.
+- Cria/sobrescreve `RELATORIO_PROCESSAMENTO.txt` junto ao CATProduct, listando contagens e falhas.
+
+**Atenção:** arquivos de saída preexistentes com o mesmo nome são removidos antes da nova exportação; exports antigos também são removidos quando a peça deixa de ser reconhecida como chapa. Confira as pastas `DXF` e `STEP` após a execução.
+
 ## Propriedades utilizadas
 
 | Nome no código | Tipo/uso | Valor padrão quando criado por `Propriedades.CATScript` |
@@ -168,6 +226,10 @@ A exportação utiliza o conversor nativo `BillOfMaterial` do CATIA. A disponibi
 | `PDF` | Personalizada — referência/identificação de PDF | Sem padrão definido |
 | `DXF` | Personalizada — referência/identificação de DXF | Sem padrão definido |
 | `STEP` | Personalizada — referência/identificação de STEP | Sem padrão definido |
+| `DIM_PRINCIPAL_1` | Personalizada — dimensão no primeiro eixo principal de inércia | Criada/atualizada por `ANALISE_DIMENSOES.CATScript`; sem padrão geral |
+| `DIM_PRINCIPAL_2` | Personalizada — dimensão no segundo eixo principal de inércia | Criada/atualizada por `ANALISE_DIMENSOES.CATScript`; sem padrão geral |
+| `DIM_PRINCIPAL_3` | Personalizada — dimensão no terceiro eixo principal de inércia | Criada/atualizada por `ANALISE_DIMENSOES.CATScript`; sem padrão geral |
+| `PESO` | Personalizada — massa da peça, em kg conforme análise de inércia | Criada/atualizada por `ANALISE_DIMENSOES.CATScript` quando a densidade é válida |
 
 Os nomes são identificadores usados diretamente no código. Preserve a grafia, os sublinhados e a ausência de acentos ao editar as macros ou configurar propriedades no CATIA.
 
@@ -179,6 +241,8 @@ Os nomes são identificadores usados diretamente no código. Preserve a grafia, 
 - Permissão de leitura e gravação na pasta configurada para os scripts e para `resultado.txt`.
 - Um documento compatível aberto no CATIA, conforme a macro executada.
 - Para `AcessarProps.CATScript`, um Drawing com pelo menos uma vista generativa vinculada a um modelo 3D.
+- Para `ANALISE_DIMENSOES.CATScript` e `RelatorioAnaliseDimensoes.CATScript`, um CATPart com geometria em `MainBody` e suporte do `SPAWorkbench`.
+- Para `DefinirCorteLaser.CATScript` e `Exportar_Chapas.CATScript`, um CATProduct salvo com peças CATPart acessíveis e recursos de chapa compatíveis com Generative Sheetmetal Design.
 - Para atualizar os textos do Drawing, os objetos de texto esperados precisam existir com os nomes configurados.
 
 A disponibilidade de CATScript, HTA e automação pode variar conforme a versão do CATIA, a versão do Windows e as políticas corporativas.
@@ -221,6 +285,10 @@ Sempre que possível, mantenha `JanelaPropriedades.hta` e `resultado.txt` na mes
 | Criar propriedades padrão ausentes em peça/conjunto e componentes diretos | `Propriedades.CATScript` |
 | Numerar `ITEM` dos componentes diretos do conjunto ativo | `NumerarItens.CATScript` |
 | Exportar a BOM do conjunto ativo para HTML | `BillOfMaterial.CATScript` |
+| Calcular dimensões e gravar dimensões/massa nas propriedades da peça | `ANALISE_DIMENSOES.CATScript` |
+| Gerar relatório dimensional, massa e peso estimado do bloco bruto | `RelatorioAnaliseDimensoes.CATScript` |
+| Classificar chapas e preencher `PROCESSO`/`DIAM_ESP` na montagem | `DefinirCorteLaser.CATScript` |
+| Exportar STEP e DXF planificado das chapas de uma montagem | `Exportar_Chapas.CATScript` |
 
 ## Fluxo de dados
 
@@ -239,7 +307,7 @@ O formato é simples e não é adequado para valores que contenham quebras de li
 
 Estes pontos foram identificados pela leitura estática dos arquivos e devem ser considerados antes de usar o projeto em produção:
 
-1. **Caminhos fixos:** `AcessarProps.CATScript`, `PropriedadesPeca.CATScript` e `JanelaPropriedades.hta` dependem de caminhos absolutos associados a um usuário/pasta específicos.
+1. **Caminhos fixos:** além dos scripts de formulário (`AcessarProps.CATScript`, `PropriedadesPeca.CATScript` e `JanelaPropriedades.hta`), `RelatorioAnaliseDimensoes.CATScript` também usa um caminho absoluto para o TXT de saída.
 2. **Arquivo compartilhado:** o uso de um único `resultado.txt` pressupõe que não haverá duas execuções simultâneas. Execuções concorrentes podem sobrescrever os dados umas das outras.
 3. **HTA/MSHTA:** a interface depende de uma tecnologia antiga do Windows que pode estar bloqueada por políticas de segurança.
 4. **Identificação do modelo no Drawing:** `AcessarProps.CATScript` usa a primeira vista generativa encontrada que permita obter um documento de origem. Em desenhos com várias vistas/modelos, confirme se essa seleção corresponde ao modelo que deseja editar.
@@ -253,6 +321,8 @@ Estes pontos foram identificados pela leitura estática dos arquivos e devem ser
 12. **Valores vazios:** `PropriedadesPeca.CATScript` ignora campos vazios ao gravar, o que impede usar um campo vazio para apagar o valor existente. Já `AcessarProps.CATScript` tenta gravar os valores retornados, inclusive strings vazias.
 13. **Codificação:** o arquivo de intercâmbio é criado em Unicode em algumas rotinas. Mantenha a compatibilidade entre leitura e gravação ao modificar os scripts.
 14. **`resultado.txt` incluído no ZIP:** contém dados de uma execução anterior. Ele será sobrescrito durante o uso; não dependa dos valores atualmente presentes.
+15. **Saídas de fabricação:** `Exportar_Chapas.CATScript` substitui exports de mesmo nome e pode remover arquivos antigos de peças classificadas como sólido convencional. Verifique o relatório e os arquivos nas pastas `STEP` e `DXF`.
+16. **Análise de chapa:** `DefinirCorteLaser.CATScript` salva os CATParts nos quais atualiza propriedades; confirme que os documentos estão disponíveis para gravação e revise `RELATORIO_PROCESSO.txt`.
 
 ## Solução de problemas
 
@@ -315,4 +385,4 @@ A licença do projeto não concede direitos sobre marcas registradas nem altera 
 
 ---
 
-**Resumo:** `MacroS` é um conjunto de automações para propriedades de produto, atualização de campos em desenhos, numeração de itens e exportação de BOM no CATIA V5. Antes de distribuir ou usar em produção, ajuste os caminhos absolutos, valide os nomes dos objetos do Drawing e teste as rotinas em cópias dos documentos reais.
+**Resumo:** `MacroS` reúne automações de propriedades, desenhos, numeração, BOM, análise dimensional e processamento de chapas (classificação, espessura e exportação STEP/DXF) para CATIA V5. Antes de distribuir ou usar em produção, ajuste os caminhos absolutos, valide os nomes dos objetos do Drawing e teste as rotinas em cópias dos documentos reais.

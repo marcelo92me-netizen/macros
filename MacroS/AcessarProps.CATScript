@@ -313,63 +313,78 @@ Sub CATMain()
     On Error GoTo 0
 
     ' =====================================================
-    ' 10. Atualizar Text.524 no Drawing: PartNumber
+    ' 10. Atualizar NUM_PART no Drawing: PartNumber
     ' =====================================================
 
     If Not AtualizarTextoDrawing( _
-        docDrawing, "Text.524", CStr(partNumberAtual)) Then
+        docDrawing, "NUM_PART", CStr(partNumberAtual)) Then
 
         mensagem = mensagem & vbCrLf & _
-                   "Text.524 (PartNumber)"
+                   "NUM_PART (PartNumber)"
     End If
 
     ' =====================================================
-    ' 11. Atualizar Text.525 no Drawing: PDF
+    ' 11. Atualizar FOLHA_PDF no Drawing: PDF
     ' =====================================================
 
     If Not AtualizarTextoDrawing( _
-        docDrawing, "Text.525", CStr(valores(12))) Then
+        docDrawing, "FOLHA_PDF", CStr(valores(12))) Then
 
         mensagem = mensagem & vbCrLf & _
-                   "Text.525 (PDF)"
+                   "FOLHA_PDF (PDF)"
     End If
 
     ' =====================================================
     ' 12. Atualizar os novos campos de texto sobre a tabela
     '
-    '   Text.526 <- propriedade personalizada ITEM
-    '   Text.527 <- propriedade nativa DEFINITION
-    '   Text.528 <- propriedade nativa PRODUCT_DESCRIPTION
+    '   ITEM <- propriedade personalizada ITEM
+    '   MATERIAL <- propriedade nativa DEFINITION
+    '   DESCRICAO <- propriedade nativa PRODUCT_DESCRIPTION
     '
     '   Os campos Quant. e Obs. nao sao alterados pela macro.
     ' =====================================================
 
     If Not AtualizarTextoDrawing( _
-        docDrawing, "Text.526", CStr(valores(3))) Then
+        docDrawing, "ITEM", CStr(valores(3))) Then
 
         mensagem = mensagem & vbCrLf & _
-                   "Text.526 (ITEM)"
+                   "ITEM (ITEM)"
     End If
 
     If Not AtualizarTextoDrawing( _
-        docDrawing, "Text.527", CStr(valores(2))) Then
+        docDrawing, "MATERIAL", CStr(valores(2))) Then
 
         mensagem = mensagem & vbCrLf & _
-                   "Text.527 (DEFINITION / Material)"
+                   "MATERIAL (DEFINITION / Material)"
     End If
 
     If Not AtualizarTextoDrawing( _
-        docDrawing, "Text.528", CStr(valores(0))) Then
+        docDrawing, "DESCRICAO", CStr(valores(0))) Then
 
         mensagem = mensagem & vbCrLf & _
-                   "Text.528 (PRODUCT_DESCRIPTION / Descricao)"
+                   "DESCRICAO (PRODUCT_DESCRIPTION / Descricao)"
+    End If
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "TRAT_SUP", CStr(valores(6))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "TRAT_SUP (TRAT_SUP)"
+    End If
+
+    If Not AtualizarTextoDrawing( _
+        docDrawing, "TRAT_TERM", CStr(valores(5))) Then
+
+        mensagem = mensagem & vbCrLf & _
+                   "TRAT_TERM (TRAT_TERM)"
     End If
 
     If Len(mensagem) > 0 Then
 
         MsgBox "Nao foi possivel atualizar todos os campos de texto " & _
                "do Drawing:" & vbCrLf & mensagem & vbCrLf & vbCrLf & _
-               "Verifique se os objetos Text.526, Text.527 e Text.528 " & _
+               "Verifique se os objetos ITEM, MATERIAL, DESCRICAO, " & _
+               "TRAT_SUP e TRAT_TERM " & _
                "existem e se seus nomes estao corretos. Os documentos " & _
                "nao serao salvos enquanto houver falhas."
 
