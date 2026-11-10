@@ -65,15 +65,19 @@ Fluxo implementado:
 4. Lê as propriedades nativas e personalizadas e grava os valores iniciais em `resultado.txt`.
 5. Abre `JanelaPropriedades.hta` e aguarda seu fechamento.
 6. Se o formulário retornar o status `OK`, grava as propriedades no modelo 3D.
-7. Atualiza os textos do Drawing identificados pelos nomes abaixo:
-   - `Text.524` ← `PartNumber`
-   - `Text.525` ← `PDF`
-   - `Text.526` ← `ITEM`
-   - `Text.527` ← `DEFINITION`
-   - `Text.528` ← `PRODUCT_DESCRIPTION`
+7. Atualiza, pelo nome do objeto de texto no Drawing, os campos abaixo:
+   - `NUM_PART` ← `PartNumber` do produto
+   - `FOLHA_PDF` ← propriedade personalizada `PDF`
+   - `ITEM` ← propriedade personalizada `ITEM`
+   - `MATERIAL` ← propriedade nativa `DEFINITION`
+   - `DESCRICAO` ← propriedade nativa `PRODUCT_DESCRIPTION`
+   - `TRAT_SUP` ← propriedade personalizada `TRAT_SUP`
+   - `TRAT_TERM` ← propriedade personalizada `TRAT_TERM`
+
+   Os campos `Quant.` e `Obs.` do Drawing não são alterados pela macro.
 8. Tenta salvar o documento 3D e, em seguida, o Drawing.
 
-Os nomes `Text.524` a `Text.528` precisam corresponder exatamente aos nomes dos objetos de texto existentes no Drawing. A macro percorre folhas, vistas e coleções de textos para localizar esses objetos.
+Os objetos de texto precisam ter exatamente os nomes `NUM_PART`, `FOLHA_PDF`, `ITEM`, `MATERIAL`, `DESCRICAO`, `TRAT_SUP` e `TRAT_TERM`. A macro percorre as folhas, vistas e coleções de textos do Drawing para localizá-los. A atualização só é considerada bem-sucedida quando o nome é encontrado e o texto é alterado.
 
 **Atenção:** o código contém um caminho de pasta fixo na constante `PASTA`. Ele precisa ser ajustado para a instalação em que a macro será usada.
 
@@ -311,7 +315,7 @@ Estes pontos foram identificados pela leitura estática dos arquivos e devem ser
 2. **Arquivo compartilhado:** o uso de um único `resultado.txt` pressupõe que não haverá duas execuções simultâneas. Execuções concorrentes podem sobrescrever os dados umas das outras.
 3. **HTA/MSHTA:** a interface depende de uma tecnologia antiga do Windows que pode estar bloqueada por políticas de segurança.
 4. **Identificação do modelo no Drawing:** `AcessarProps.CATScript` usa a primeira vista generativa encontrada que permita obter um documento de origem. Em desenhos com várias vistas/modelos, confirme se essa seleção corresponde ao modelo que deseja editar.
-5. **Nomes de textos fixos:** `Text.524` a `Text.528` são nomes específicos do Drawing usado como referência. Outros desenhos podem ter nomes diferentes.
+5. **Nomes de textos fixos:** `NUM_PART`, `FOLHA_PDF`, `ITEM`, `MATERIAL`, `DESCRICAO`, `TRAT_SUP` e `TRAT_TERM` são nomes esperados pela macro no Drawing. Outros desenhos precisam usar esses nomes nos objetos correspondentes.
 6. **Identificação de peças:** `Propriedades.CATScript` decide se um componente é peça com base no nome do objeto pai conter `.CATPART`. Essa heurística pode não funcionar em todos os ambientes ou estruturas de documentos.
 7. **Contagem de falhas:** algumas rotinas usam `On Error Resume Next`. Isso permite continuar após certos erros, mas pode ocultar a causa original ou fazer com que uma mensagem de sucesso não garanta que todas as alterações foram efetivadas.
 8. **Salvamento:** `AcessarProps.CATScript` tenta salvar o modelo 3D e o Drawing. `PropriedadesPeca.CATScript` informa que o usuário deve salvar, mas não salva explicitamente no código analisado. As demais macros também não salvam explicitamente todos os documentos modificados.
@@ -342,7 +346,7 @@ Estes pontos foram identificados pela leitura estática dos arquivos e devem ser
 
 - Confirme que o documento ativo é um Drawing.
 - Verifique se existe uma vista generativa vinculada ao modelo esperado.
-- Confira os nomes exatos dos textos: `Text.524`, `Text.525`, `Text.526`, `Text.527` e `Text.528`.
+- Confira os nomes exatos dos objetos de texto: `NUM_PART`, `FOLHA_PDF`, `ITEM`, `MATERIAL`, `DESCRICAO`, `TRAT_SUP` e `TRAT_TERM`.
 - Verifique se os textos estão em alguma folha/vista percorrida pela macro.
 
 ### A macro não cria ou atualiza uma propriedade
