@@ -5,11 +5,11 @@ Option Explicit
 ' CATIA V5-6R2021 - Generative Sheetmetal Design
 '
 ' CHAPAS:
-'   Exporta STEP e DXF planificado.
+'   Exporta DXF planificado.
 '
 ' SOLIDOS CONVENCIONAIS:
-'   Nao exporta STEP nem DXF.
-'   Remove arquivos STEP/DXF antigos com o mesmo nome.
+'   Nao exporta DXF.
+'   Remove arquivos DXF antigos com o mesmo nome.
 '
 ' IMPORTANTE:
 '   Esta versao nao executa operacoes em propriedades ou parametros
@@ -29,14 +29,12 @@ Dim arquivoLog
 
 Dim pastaPrincipal
 Dim pastaDXF
-Dim pastaSTEP
 Dim caminhoRelatorio
 
 Dim totalPecas
 Dim totalChapas
 Dim totalDobras
 Dim totalLaser
-Dim totalSTEP
 Dim totalDXF
 Dim totalSolidos
 Dim totalErros
@@ -65,7 +63,6 @@ Sub CATMain()
     totalChapas = 0
     totalDobras = 0
     totalLaser = 0
-    totalSTEP = 0
     totalDXF = 0
     totalSolidos = 0
     totalErros = 0
@@ -90,7 +87,6 @@ Sub CATMain()
     End If
 
     pastaDXF = pastaPrincipal & "\DXF"
-    pastaSTEP = pastaPrincipal & "\STEP"
     caminhoRelatorio = pastaPrincipal & "\RELATORIO_PROCESSAMENTO.txt"
 
     If Not fso.FolderExists(pastaDXF) Then
@@ -98,15 +94,6 @@ Sub CATMain()
         fso.CreateFolder pastaDXF
         If Err.Number <> 0 Then
             MsgBox "Nao foi possivel criar a pasta DXF: " & Err.Description
-            Exit Sub
-        End If
-    End If
-
-    If Not fso.FolderExists(pastaSTEP) Then
-        Err.Clear
-        fso.CreateFolder pastaSTEP
-        If Err.Number <> 0 Then
-            MsgBox "Nao foi possivel criar a pasta STEP: " & Err.Description
             Exit Sub
         End If
     End If
@@ -137,12 +124,11 @@ Sub CATMain()
     EscreverLog "Chapas sem dobra: " & totalLaser
     EscreverLog "Chapas com dobra: " & totalDobras
     EscreverLog "Solidos ignorados: " & totalSolidos
-    EscreverLog "STEP gerados: " & totalSTEP
     EscreverLog "DXF gerados: " & totalDXF
     EscreverLog "Erros: " & totalErros
     EscreverLog ""
     EscreverLog "================================================"
-    EscreverLog "ARQUIVOS COM FALHA NA EXPORTACAO STEP/DXF"
+    EscreverLog "ARQUIVOS COM FALHA NA EXPORTACAO DXF"
     EscreverLog "================================================"
     EscreverLog "Quantidade de arquivos: " & falhasExportacao.Count
 
@@ -163,7 +149,6 @@ Sub CATMain()
            "Chapas sem dobra: " & totalLaser & vbCrLf & _
            "Chapas com dobra: " & totalDobras & vbCrLf & _
            "Solidos ignorados: " & totalSolidos & vbCrLf & _
-           "STEP gerados: " & totalSTEP & vbCrLf & _
            "DXF gerados: " & totalDXF & vbCrLf & _
            "Erros: " & totalErros & vbCrLf & vbCrLf & _
            "Consulte o RELATORIO_PROCESSAMENTO.txt"
@@ -271,12 +256,10 @@ Sub ProcessarPeca(caminho)
 
     Dim docPeca
     Dim nomePeca
-    Dim caminhoSTEP
     Dim caminhoDXF
     Dim chapa
     Dim dobra
     Dim documentoJaAberto
-    Dim motivoSTEP
 
     caminho = Trim(caminho)
 
@@ -308,7 +291,6 @@ Sub ProcessarPeca(caminho)
     End If
 
     nomePeca = fso.GetBaseName(caminho)
-    caminhoSTEP = pastaSTEP & "\" & nomePeca & ".stp"
     caminhoDXF = pastaDXF & "\" & nomePeca & ".dxf"
 
     ' Atualizar geometria antes da identificacao e exportacao.
@@ -329,23 +311,11 @@ Sub ProcessarPeca(caminho)
     EscreverLog "IDENTIFICACAO DE CHAPA: " & CStr(chapa)
     EscreverLog "IDENTIFICACAO DE DOBRA: " & CStr(dobra)
 
-    ' Solido convencional: nao exportar e remover exportacoes antigas.
+    ' Solido convencional: nao exportar e remover DXF antigo.
     If Not chapa Then
 
         totalSolidos = totalSolidos + 1
         EscreverLog "CLASSIFICACAO: SOLIDO CONVENCIONAL"
-
-        If fso.FileExists(caminhoSTEP) Then
-            Err.Clear
-            fso.DeleteFile caminhoSTEP, True
-            If Err.Number <> 0 Then
-                EscreverLog "ERRO AO REMOVER STEP ANTIGO: " & Err.Description
-                totalErros = totalErros + 1
-                Err.Clear
-            Else
-                EscreverLog "STEP ANTIGO REMOVIDO."
-            End If
-        End If
 
         If fso.FileExists(caminhoDXF) Then
             Err.Clear
@@ -359,7 +329,6 @@ Sub ProcessarPeca(caminho)
             End If
         End If
 
-        EscreverLog "STEP IGNORADO."
         EscreverLog "DXF IGNORADO."
 
         FecharDocumentoSeNecessario docPeca, documentoJaAberto
@@ -375,43 +344,6 @@ Sub ProcessarPeca(caminho)
     Else
         totalLaser = totalLaser + 1
         EscreverLog "CLASSIFICACAO: CHAPA SEM DOBRA"
-    End If
-
-    ' Exportar STEP somente para chapas.
-    If fso.FileExists(caminhoSTEP) Then
-        Err.Clear
-        fso.DeleteFile caminhoSTEP, True
-        If Err.Number <> 0 Then
-            EscreverLog "ERRO AO REMOVER STEP ANTERIOR: " & Err.Description
-            totalErros = totalErros + 1
-            Err.Clear
-        End If
-    End If
-
-    Err.Clear
-    docPeca.ExportData caminhoSTEP, "stp"
-
-    If Err.Number = 0 Then
-        If fso.FileExists(caminhoSTEP) Then
-            If fso.GetFile(caminhoSTEP).Size > 0 Then
-                totalSTEP = totalSTEP + 1
-                EscreverLog "STEP GERADO: " & caminhoSTEP
-            Else
-                EscreverLog "ERRO: STEP GERADO VAZIO: " & caminhoSTEP
-                RegistrarFalhaExportacao caminhoSTEP, "STEP", "Arquivo gerado com tamanho zero."
-                totalErros = totalErros + 1
-            End If
-        Else
-            EscreverLog "ERRO: ARQUIVO STEP NAO ENCONTRADO: " & caminhoSTEP
-            RegistrarFalhaExportacao caminhoSTEP, "STEP", "Arquivo nao encontrado apos ExportData."
-            totalErros = totalErros + 1
-        End If
-    Else
-        motivoSTEP = Err.Description
-        EscreverLog "ERRO STEP: " & motivoSTEP
-        RegistrarFalhaExportacao caminhoSTEP, "STEP", motivoSTEP
-        totalErros = totalErros + 1
-        Err.Clear
     End If
 
     ' Gerar DXF planificado.
