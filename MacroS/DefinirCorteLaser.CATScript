@@ -29,6 +29,7 @@ Dim totalLaser
 Dim totalSolidos
 Dim totalProcessosGravados
 Dim totalDiamEspGravados
+Dim totalDXFGravados
 Dim totalErros
 
 ' ============================================================
@@ -53,6 +54,7 @@ Sub CATMain()
     totalSolidos = 0
     totalProcessosGravados = 0
     totalDiamEspGravados = 0
+    totalDXFGravados = 0
     totalErros = 0
 
     Set docPrincipal = CATIA.ActiveDocument
@@ -80,7 +82,7 @@ Sub CATMain()
     EscreverLog "ANALISE E GRAVACAO DA PROPRIEDADE PROCESSO"
     EscreverLog "CATIA V5-6R2021"
     EscreverLog "DESTINO: Product.UserRefProperties"
-    EscreverLog "PROPRIEDADES: PROCESSO e DIAM_ESP"
+    EscreverLog "PROPRIEDADES: PROCESSO, DIAM_ESP e DXF"
     EscreverLog "================================================"
     EscreverLog "CONJUNTO: " & docPrincipal.FullName
     EscreverLog "Esta macro nao exporta STEP/DXF."
@@ -102,6 +104,7 @@ Sub CATMain()
     EscreverLog "Solidos convencionais ignorados: " & totalSolidos
     EscreverLog "Propriedades PROCESSO gravadas e salvas: " & totalProcessosGravados
     EscreverLog "Propriedades DIAM_ESP gravadas e salvas: " & totalDiamEspGravados
+    EscreverLog "Propriedades DXF gravadas e salvas: " & totalDXFGravados
     EscreverLog "Erros: " & totalErros
 
     arquivoLog.Close
@@ -114,6 +117,7 @@ Sub CATMain()
            "Solidos ignorados: " & totalSolidos & vbCrLf & _
            "Propriedades PROCESSO gravadas: " & totalProcessosGravados & vbCrLf & _
            "Propriedades DIAM_ESP gravadas: " & totalDiamEspGravados & vbCrLf & _
+           "Propriedades DXF gravadas: " & totalDXFGravados & vbCrLf & _
            "Erros: " & totalErros & vbCrLf & vbCrLf & _
            "Consulte o RELATORIO_PROCESSO.txt"
 
@@ -224,6 +228,7 @@ Sub ProcessarPeca(caminho)
     Dim valorProcessos
     Dim propriedadeProcessosGravada
     Dim propriedadeDiamEspGravada
+    Dim propriedadeDXFGravada
     Dim espessuraChapa
     Dim espessuraEncontrada
 
@@ -304,9 +309,10 @@ Sub ProcessarPeca(caminho)
     End If
 
     propriedadeProcessosGravada = GravarPropriedadeTexto(docPeca, "PROCESSO", valorProcessos)
+    propriedadeDXFGravada = GravarPropriedadeTexto(docPeca, "DXF", fso.GetBaseName(caminho))
 
     ' Salva uma unica vez caso ao menos uma das propriedades tenha sido gravada.
-    If propriedadeProcessosGravada Or propriedadeDiamEspGravada Then
+    If propriedadeProcessosGravada Or propriedadeDiamEspGravada Or propriedadeDXFGravada Then
         Err.Clear
         docPeca.Save
 
@@ -323,6 +329,11 @@ Sub ProcessarPeca(caminho)
             If propriedadeDiamEspGravada Then
                 totalDiamEspGravados = totalDiamEspGravados + 1
                 EscreverLog "CATPART SALVO COM DIAM_ESP = " & espessuraChapa
+            End If
+
+            If propriedadeDXFGravada Then
+                totalDXFGravados = totalDXFGravados + 1
+                EscreverLog "CATPART SALVO COM DXF = " & fso.GetBaseName(caminho)
             End If
         End If
     End If

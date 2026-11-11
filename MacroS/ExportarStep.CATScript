@@ -1,0 +1,441 @@
+Option Explicit
+
+' Exporta todos os CATPart referenciados pela montagem ativa para a pasta STEP
+' localizada ao lado do CATProduct principal.
+' Compatibilidade: CATIA V5 CATScript.
+
+Dim fso
+Dim arquivosVisitados
+Dim nomesDestino
+Dim arquivoRelatorio
+Dim pastaSTEP
+Dim totalPecas
+Dim totalSucesso
+Dim totalFalha
+Dim listaFalhas
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim docPrincipal
+    Dim caminhoRaiz
+    Dim produtoRaiz
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set arquivosVisitados = CreateObject("Scripting.Dictionary")
+    arquivosVisitados.CompareMode = 1
+    Set nomesDestino = CreateObject("Scripting.Dictionary")
+    nomesDestino.CompareMode = 1
+    Set listaFalhas = CreateObject("Scripting.Dictionary")
+    listaFalhas.CompareMode = 1
+
+    totalPecas = 0
+    totalSucesso = 0
+    totalFalha = 0
+
+    Err.Clear
+    Set docPrincipal = CATIA.ActiveDocument
+    If Err.Number <> 0 Or docPrincipal Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If TypeName(docPrincipal) <> "ProductDocument" Then
+        MsgBox "Abra o CATProduct principal antes de executar a macro."
+        Exit Sub
+    End If
+
+    caminhoRaiz = fso.GetParentFolderName(docPrincipal.FullName)
+    If caminhoRaiz = "" Then
+        MsgBox "Salve o CATProduct antes de executar a macro."
+        Exit Sub
+    End If
+
+    pastaSTEP = caminhoRaiz & "\STEP"
+    If Not fso.FolderExists(pastaSTEP) Then
+        Err.Clear
+        fso.CreateFolder pastaSTEP
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta STEP: " & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    Set arquivoRelatorio = fso.CreateTextFile(caminhoRaiz & "\RELATORIO_EXPORTACAO_STEP.txt", True)
+    If Err.Number <> 0 Then
+        MsgBox "Nao foi possivel criar o relatorio: " & Err.Description
+        Exit Sub
+    End If
+
+    EscreverLog "EXPORTACAO DE ARQUIVOS STEP"
+    EscreverLog "Montagem: " & docPrincipal.FullName
+    EscreverLog "Destino: " & pastaSTEP
+    EscreverLog "Inicio: " & Now
+    EscreverLog ""
+
+    Set produtoRaiz = docPrincipal.Product
+    PercorrerConjunto produtoRaiz
+
+    EscreverLog ""
+    EscreverLog "RESUMO"
+    EscreverLog "CATParts encontrados: " & totalPecas
+    EscreverLog "SUCESSO: " & totalSucesso
+    EscreverLog "FALHA: " & totalFalha
+    EscreverLog ""
+    EscreverLog "LISTA DE ARQUIVOS COM FALHA NA EXPORTACAO"
+
+    If listaFalhas.Count = 0 Then
+        EscreverLog "Nenhum arquivo apresentou falha."
+    Else
+        Dim chave
+        For Each chave In listaFalhas.Keys
+            EscreverLog listaFalhas.Item(chave)
+        Next
+    End If
+
+    EscreverLog ""
+    EscreverLog "Fim: " & Now
+    arquivoRelatorio.Close
+
+    MsgBox "Exportacao STEP finalizada." & vbCrLf & _
+           "SUCESSO: " & totalSucesso & vbCrLf & _
+           "FALHA: " & totalFalha & vbCrLf & _
+           "Relatorio: " & caminhoRaiz & "\RELATORIO_EXPORTACAO_STEP.txt"
+
+End Sub
+
+' Percorre os niveis de conjuntos e subconjuntos da arvore CATProduct.
+Sub PercorrerConjunto(produto)
+
+    On Error Resume Next
+
+    Dim filhos
+    Dim filho
+    Dim referencia
+    Dim documento
+    Dim qtdFilhos
+    Dim qtdSubFilhos
+    Dim i
+
+    Err.Clear
+    Set filhos = produto.Products
+    If Err.Number <> 0 Or filhos Is Nothing Then
+        EscreverLog "FALHA ao acessar os componentes de: " & produto.Name
+        totalFalha = totalFalha + 1
+        RegistrarFalha produto.Name, "Nao foi possivel acessar os componentes do conjunto."
+        Err.Clear
+        Exit Sub
+    End If
+
+    qtdFilhos = filhos.Count
+    For i = 1 To qtdFilhos
+        Err.Clear
+        Set filho = filhos.Item(i)
+        If Err.Number <> 0 Or filho Is Nothing Then
+            EscreverLog "FALHA ao ler componente " & i & " do conjunto " & produto.Name
+            totalFalha = totalFalha + 1
+            RegistrarFalha produto.Name & " [componente " & i & "]", "Falha ao ler componente da arvore."
+            Err.Clear
+        Else
+            Err.Clear
+            Set referencia = filho.ReferenceProduct
+            If Err.Number = 0 And Not referencia Is Nothing Then
+                Set documento = referencia.Parent
+                If Err.Number = 0 And Not documento Is Nothing Then
+                    If TypeName(documento) = "PartDocument" Then
+                        ProcessarPeca documento.FullName
+                    Else
+                        Err.Clear
+                        qtdSubFilhos = filho.Products.Count
+                        If Err.Number = 0 And qtdSubFilhos > 0 Then
+                            PercorrerConjunto filho
+                        ElseIf Err.Number <> 0 Then
+                            EscreverLog "FALHA ao acessar subconjunto: " & filho.Name
+                            totalFalha = totalFalha + 1
+                            RegistrarFalha filho.Name, "Nao foi possivel percorrer o subconjunto."
+                        End If
+                    End If
+                Else
+                    EscreverLog "FALHA ao localizar documento de referencia: " & filho.Name
+                    totalFalha = totalFalha + 1
+                    RegistrarFalha filho.Name, "Documento de referencia indisponivel ou CATProduct nao carregado."
+                End If
+            Else
+                EscreverLog "FALHA ao localizar referencia: " & filho.Name
+                totalFalha = totalFalha + 1
+                RegistrarFalha filho.Name, "Referencia do componente indisponivel."
+            End If
+        End If
+    Next
+
+End Sub
+
+Function LocalizarDocumento(caminho)
+
+    On Error Resume Next
+
+    Dim i
+    Dim doc
+
+    Set LocalizarDocumento = Nothing
+    For i = 1 To CATIA.Documents.Count
+        Err.Clear
+        Set doc = CATIA.Documents.Item(i)
+        If Err.Number = 0 Then
+            If LCase(doc.FullName) = LCase(caminho) Then
+                Set LocalizarDocumento = doc
+                Exit Function
+            End If
+        End If
+    Next
+
+End Function
+
+Function DefinirCaminhoDestino(caminhoOrigem)
+
+    On Error Resume Next
+
+    Dim base
+    Dim candidato
+    Dim contador
+    Dim chaveOrigem
+
+    base = fso.GetBaseName(caminhoOrigem)
+    candidato = base & ".stp"
+    chaveOrigem = LCase(caminhoOrigem)
+
+    If nomesDestino.Exists(LCase(candidato)) Then
+        If LCase(nomesDestino.Item(LCase(candidato))) <> chaveOrigem Then
+            contador = 2
+            Do While nomesDestino.Exists(LCase(base & "_" & contador & ".stp"))
+                contador = contador + 1
+            Loop
+            candidato = base & "_" & contador & ".stp"
+        End If
+    End If
+
+    nomesDestino(LCase(candidato)) = chaveOrigem
+    DefinirCaminhoDestino = pastaSTEP & "\" & candidato
+
+End Function
+
+Sub ProcessarPeca(caminho)
+
+    On Error Resume Next
+
+    Dim chaveOrigem
+    Dim docPeca
+    Dim documentoJaAberto
+    Dim caminhoSTEP
+    Dim detalhe
+
+    caminho = Trim(caminho)
+    If caminho = "" Then Exit Sub
+
+    chaveOrigem = LCase(caminho)
+    If arquivosVisitados.Exists(chaveOrigem) Then Exit Sub
+    arquivosVisitados.Add chaveOrigem, True
+    totalPecas = totalPecas + 1
+
+    caminhoSTEP = DefinirCaminhoDestino(caminho)
+    EscreverLog "PROCESSANDO: " & caminho
+
+    Set docPeca = LocalizarDocumento(caminho)
+    documentoJaAberto = Not (docPeca Is Nothing)
+
+    If docPeca Is Nothing Then
+        Err.Clear
+        Set docPeca = CATIA.Documents.Open(caminho)
+        If Err.Number <> 0 Or docPeca Is Nothing Then
+            detalhe = "Falha ao abrir CATPart: " & Err.Description
+            EscreverLog "FALHA | " & caminho & " | " & detalhe
+            totalFalha = totalFalha + 1
+            RegistrarFalha caminho, detalhe
+            Err.Clear
+            Exit Sub
+        End If
+    End If
+
+    ' Grava no CATPart uma User Property String chamada STEP.
+    ' O valor e o nome-base do CATPart, sem a extensao .CATPart.
+    If Not GravarPropriedadeSTEP(docPeca, fso.GetBaseName(caminho)) Then
+        detalhe = "Falha ao criar ou atualizar a propriedade personalizada STEP."
+        EscreverLog "FALHA | " & caminho & " | " & detalhe
+        totalFalha = totalFalha + 1
+        RegistrarFalha caminho, detalhe
+        FecharDocumentoSeNecessario docPeca, documentoJaAberto
+        Exit Sub
+    End If
+
+    Err.Clear
+    docPeca.Save
+    If Err.Number <> 0 Then
+        detalhe = "Falha ao salvar a propriedade STEP no CATPart: " & Err.Description
+        EscreverLog "FALHA | " & caminho & " | " & detalhe
+        totalFalha = totalFalha + 1
+        RegistrarFalha caminho, detalhe
+        Err.Clear
+        FecharDocumentoSeNecessario docPeca, documentoJaAberto
+        Exit Sub
+    End If
+    EscreverLog "PROPRIEDADE STEP SALVA = " & fso.GetBaseName(caminho)
+
+    If fso.FileExists(caminhoSTEP) Then
+        Err.Clear
+        fso.DeleteFile caminhoSTEP, True
+        If Err.Number <> 0 Then
+            detalhe = "Nao foi possivel substituir o STEP existente: " & Err.Description
+            EscreverLog "FALHA | " & caminho & " | " & detalhe
+            totalFalha = totalFalha + 1
+            RegistrarFalha caminho, detalhe
+            FecharDocumentoSeNecessario docPeca, documentoJaAberto
+            Err.Clear
+            Exit Sub
+        End If
+    End If
+
+    Err.Clear
+    docPeca.ExportData caminhoSTEP, "stp"
+    If Err.Number <> 0 Then
+        detalhe = "Erro ExportData: " & Err.Description
+        EscreverLog "FALHA | " & caminho & " | " & detalhe
+        totalFalha = totalFalha + 1
+        RegistrarFalha caminho, detalhe
+        Err.Clear
+    ElseIf Not fso.FileExists(caminhoSTEP) Then
+        detalhe = "O CATIA nao criou o arquivo de destino."
+        EscreverLog "FALHA | " & caminho & " | " & detalhe
+        totalFalha = totalFalha + 1
+        RegistrarFalha caminho, detalhe
+    ElseIf fso.GetFile(caminhoSTEP).Size = 0 Then
+        detalhe = "O arquivo STEP foi criado vazio."
+        EscreverLog "FALHA | " & caminho & " | " & detalhe
+        totalFalha = totalFalha + 1
+        RegistrarFalha caminho, detalhe
+    Else
+        totalSucesso = totalSucesso + 1
+        EscreverLog "SUCESSO | " & caminho & " | " & caminhoSTEP
+    End If
+
+    FecharDocumentoSeNecessario docPeca, documentoJaAberto
+
+End Sub
+
+Function GravarPropriedadeSTEP(docPeca, valor)
+
+    On Error Resume Next
+
+    Dim produto
+    Dim propriedades
+    Dim propriedade
+    Dim nomeAtual
+    Dim nomeFinal
+    Dim posicaoBarra
+    Dim i
+
+    GravarPropriedadeSTEP = False
+
+    Err.Clear
+    Set produto = docPeca.Product
+    If Err.Number <> 0 Or produto Is Nothing Then
+        EscreverLog "ERRO AO ACESSAR PRODUCT: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Err.Clear
+    Set propriedades = produto.UserRefProperties
+    If Err.Number <> 0 Or propriedades Is Nothing Then
+        EscreverLog "ERRO AO ACESSAR PRODUCT.USERREFPROPERTIES: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Set propriedade = Nothing
+    For i = 1 To propriedades.Count
+        Err.Clear
+        Set propriedade = propriedades.Item(i)
+        If Err.Number = 0 And Not propriedade Is Nothing Then
+            Err.Clear
+            nomeAtual = CStr(propriedade.Name)
+            If Err.Number = 0 Then
+                nomeFinal = nomeAtual
+                posicaoBarra = InStrRev(nomeAtual, "\")
+                If posicaoBarra > 0 Then nomeFinal = Mid(nomeAtual, posicaoBarra + 1)
+
+                If UCase(nomeAtual) = "STEP" Or UCase(nomeFinal) = "STEP" Then
+                    Exit For
+                End If
+            End If
+        End If
+        Set propriedade = Nothing
+    Next
+
+    If propriedade Is Nothing Then
+        Err.Clear
+        Set propriedade = propriedades.CreateString("STEP", valor)
+        If Err.Number <> 0 Or propriedade Is Nothing Then
+            EscreverLog "ERRO AO CRIAR USERREFPROPERTY STEP: " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+        EscreverLog "USERREFPROPERTY STEP CRIADA."
+    Else
+        Err.Clear
+        propriedade.Value = valor
+        If Err.Number <> 0 Then
+            EscreverLog "ERRO AO ATUALIZAR USERREFPROPERTY STEP: " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+        EscreverLog "USERREFPROPERTY STEP ATUALIZADA."
+    End If
+
+    Err.Clear
+    If CStr(propriedade.Value) <> valor Or Err.Number <> 0 Then
+        EscreverLog "ERRO: O VALOR DA USERREFPROPERTY STEP NAO FOI CONFIRMADO."
+        Err.Clear
+        Exit Function
+    End If
+
+    GravarPropriedadeSTEP = True
+
+End Function
+
+Sub FecharDocumentoSeNecessario(docPeca, documentoJaAberto)
+
+    On Error Resume Next
+
+    If Not documentoJaAberto Then
+        Err.Clear
+        docPeca.Close
+        If Err.Number <> 0 Then
+            EscreverLog "AVISO ao fechar CATPart: " & Err.Description
+            Err.Clear
+        End If
+    End If
+
+End Sub
+
+Sub RegistrarFalha(nomeArquivo, detalhe)
+
+    On Error Resume Next
+
+    Dim chave
+    chave = LCase(Trim(nomeArquivo))
+    If listaFalhas.Exists(chave) Then
+        listaFalhas.Item(chave) = listaFalhas.Item(chave) & " / " & detalhe
+    Else
+        listaFalhas.Add chave, nomeArquivo & " | " & detalhe
+    End If
+
+End Sub
+
+Sub EscreverLog(mensagem)
+
+    On Error Resume Next
+
+    arquivoRelatorio.WriteLine Now & " - " & mensagem
+
+End Sub
