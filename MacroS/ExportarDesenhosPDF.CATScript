@@ -1,0 +1,182 @@
+Option Explicit
+
+' Exporta todos os CATDrawing da pasta do documento ativo para a subpasta PDF.
+' Os arquivos PDF com o mesmo nome sao substituidos.
+' Compatibilidade: CATIA V5 CATScript.
+
+Dim fso
+Dim pastaDestino
+Dim totalEncontrado
+Dim totalSucesso
+Dim totalFalha
+Dim detalhesFalha
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim documentoAtivo
+    Dim pastaOrigem
+    Dim pasta
+    Dim arquivo
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set detalhesFalha = CreateObject("Scripting.Dictionary")
+
+    Err.Clear
+    Set documentoAtivo = CATIA.ActiveDocument
+    If Err.Number <> 0 Or documentoAtivo Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If Trim(documentoAtivo.FullName) = "" Then
+        MsgBox "Salve o documento ativo antes de executar a macro."
+        Exit Sub
+    End If
+
+    pastaOrigem = fso.GetParentFolderName(documentoAtivo.FullName)
+    If pastaOrigem = "" Or Not fso.FolderExists(pastaOrigem) Then
+        MsgBox "Nao foi possivel localizar a pasta do documento ativo."
+        Exit Sub
+    End If
+
+    pastaDestino = fso.BuildPath(pastaOrigem, "PDF")
+    If Not fso.FolderExists(pastaDestino) Then
+        Err.Clear
+        fso.CreateFolder pastaDestino
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta PDF: " & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    totalEncontrado = 0
+    totalSucesso = 0
+    totalFalha = 0
+
+    Set pasta = fso.GetFolder(pastaOrigem)
+    For Each arquivo In pasta.Files
+        If LCase(fso.GetExtensionName(arquivo.Name)) = "catdrawing" Then
+            totalEncontrado = totalEncontrado + 1
+            ExportarDesenho arquivo.Path
+        End If
+    Next
+
+    Dim mensagem
+    mensagem = "Exportacao de desenhos para PDF concluida." & vbCrLf & _
+               "Pasta: " & pastaDestino & vbCrLf & _
+               "CATDrawing encontrados: " & totalEncontrado & vbCrLf & _
+               "Exportados: " & totalSucesso & vbCrLf & _
+               "Falhas: " & totalFalha
+
+    If totalFalha > 0 Then
+        mensagem = mensagem & vbCrLf & vbCrLf & "Falhas:" & vbCrLf & JuntarFalhas()
+    End If
+
+    MsgBox mensagem
+
+End Sub
+
+Sub ExportarDesenho(caminhoDesenho)
+
+    On Error Resume Next
+
+    Dim documento
+    Dim abriuDocumento
+    Dim caminhoPDF
+    Dim nomeArquivo
+
+    abriuDocumento = False
+    Set documento = LocalizarDocumentoAberto(caminhoDesenho)
+
+    If documento Is Nothing Then
+        Err.Clear
+        Set documento = CATIA.Documents.Open(caminhoDesenho)
+        If Err.Number <> 0 Or documento Is Nothing Then
+            RegistrarFalha caminhoDesenho, "Nao foi possivel abrir o CATDrawing: " & Err.Description
+            Exit Sub
+        End If
+        abriuDocumento = True
+    End If
+
+    nomeArquivo = fso.GetBaseName(caminhoDesenho) & ".pdf"
+    caminhoPDF = fso.BuildPath(pastaDestino, nomeArquivo)
+
+    ' Remove o PDF anterior para garantir a substituicao, inclusive se o CATIA
+    ' tratar ExportData como uma operacao que nao sobrescreve o arquivo.
+    If fso.FileExists(caminhoPDF) Then
+        Err.Clear
+        fso.DeleteFile caminhoPDF, True
+        If Err.Number <> 0 Then
+            RegistrarFalha caminhoDesenho, "Nao foi possivel substituir o PDF existente: " & Err.Description
+            FecharSeAbertoPelaMacro documento, abriuDocumento
+            Exit Sub
+        End If
+    End If
+
+    Err.Clear
+    documento.ExportData caminhoPDF, "pdf"
+    If Err.Number <> 0 Or Not fso.FileExists(caminhoPDF) Then
+        RegistrarFalha caminhoDesenho, "Falha ao exportar PDF: " & Err.Description
+        Err.Clear
+        FecharSeAbertoPelaMacro documento, abriuDocumento
+        Exit Sub
+    End If
+
+    totalSucesso = totalSucesso + 1
+    FecharSeAbertoPelaMacro documento, abriuDocumento
+
+End Sub
+
+Function LocalizarDocumentoAberto(caminho)
+
+    On Error Resume Next
+
+    Dim i
+    Dim documento
+    Set LocalizarDocumentoAberto = Nothing
+
+    For i = 1 To CATIA.Documents.Count
+        Err.Clear
+        Set documento = CATIA.Documents.Item(i)
+        If Err.Number = 0 And Not documento Is Nothing Then
+            If LCase(documento.FullName) = LCase(caminho) Then
+                Set LocalizarDocumentoAberto = documento
+                Exit Function
+            End If
+        End If
+    Next
+
+End Function
+
+Sub FecharSeAbertoPelaMacro(documento, abriuDocumento)
+
+    On Error Resume Next
+    If abriuDocumento Then
+        Err.Clear
+        documento.Close
+    End If
+
+End Sub
+
+Sub RegistrarFalha(caminho, motivo)
+
+    On Error Resume Next
+    totalFalha = totalFalha + 1
+    detalhesFalha.Add CStr(totalFalha), fso.GetFileName(caminho) & ": " & motivo
+
+End Sub
+
+Function JuntarFalhas()
+
+    Dim chave
+    Dim resultado
+    resultado = ""
+    For Each chave In detalhesFalha.Keys
+        If resultado <> "" Then resultado = resultado & vbCrLf
+        resultado = resultado & detalhesFalha.Item(chave)
+    Next
+    JuntarFalhas = resultado
+
+End Function
