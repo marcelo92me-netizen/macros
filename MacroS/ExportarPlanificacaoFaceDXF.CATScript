@@ -1,0 +1,354 @@
+Option Explicit
+
+' Seleciona uma face plana do CATPart, usa o plano dessa face para orientar
+' a vista planificada, exporta o DXF e atualiza as propriedades dimensionais.
+' O parametro Sheet Metal Parameters/Thickness define DIAM_ESP; COMP e LARG
+' usam o contorno planificado no Drawing (escala 1:1).
+' CATIA V5 CATScript.
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim docPeca, part, body, selecao, statusSelecao
+    Dim elementoSelecionado, referenciaFace
+    Dim spaWorkbench, mensuravel, planoFace(8)
+    Dim espessura, mensagemEspessura
+    Dim fso, pastaDXF, caminhoDXF
+    Dim docDesenho, folha, vista, comportamento
+    Dim caixaVista(3), comprimentoPlano, larguraPlano
+    Dim mensagemPropriedades, erro
+
+    Err.Clear
+    Set docPeca = CATIA.ActiveDocument
+    If Err.Number <> 0 Or docPeca Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If TypeName(docPeca) <> "PartDocument" Then
+        MsgBox "Ative um CATPart antes de executar esta macro."
+        Exit Sub
+    End If
+
+    If Trim(docPeca.FullName) = "" Then
+        MsgBox "Salve o CATPart antes de executar a macro."
+        Exit Sub
+    End If
+
+    Set part = docPeca.Part
+    Set body = part.MainBody
+    If body.Shapes.Count = 0 Then
+        MsgBox "O MainBody nao possui geometria para analisar."
+        Exit Sub
+    End If
+
+    Set selecao = docPeca.Selection
+    selecao.Clear
+    statusSelecao = selecao.SelectElement2(Array("Face"), _
+        "Selecione a face plana que define a orientacao da planificacao", False)
+    If statusSelecao <> "Normal" Then
+        selecao.Clear
+        Exit Sub
+    End If
+
+    Err.Clear
+    Set elementoSelecionado = selecao.Item2(1)
+    Set referenciaFace = elementoSelecionado.Reference
+    selecao.Clear
+    If Err.Number <> 0 Or referenciaFace Is Nothing Then
+        MsgBox "Nao foi possivel obter a referencia da face selecionada."
+        Exit Sub
+    End If
+
+    Err.Clear
+    Set spaWorkbench = docPeca.GetWorkbench("SPAWorkbench")
+    Set mensuravel = spaWorkbench.GetMeasurable(referenciaFace)
+    If Err.Number <> 0 Or mensuravel Is Nothing Then
+        MsgBox "Nao foi possivel medir a face selecionada."
+        Exit Sub
+    End If
+
+    Err.Clear
+    mensuravel.GetPlane planoFace
+    If Err.Number <> 0 Then
+        MsgBox "A face selecionada nao e plana. Selecione uma face plana."
+        Exit Sub
+    End If
+
+    If Not ObterEspessuraSheetMetal(part, espessura, mensagemEspessura) Then
+        MsgBox mensagemEspessura, vbCritical
+        Exit Sub
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    pastaDXF = fso.GetParentFolderName(docPeca.FullName) & "\DXF"
+    If Not fso.FolderExists(pastaDXF) Then
+        Err.Clear
+        fso.CreateFolder pastaDXF
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta DXF:" & vbCrLf & _
+                pastaDXF & vbCrLf & Err.Description, vbCritical
+            Exit Sub
+        End If
+    End If
+
+    caminhoDXF = pastaDXF & "\" & _
+        fso.GetBaseName(docPeca.FullName) & ".dxf"
+
+    If fso.FileExists(caminhoDXF) Then
+        Err.Clear
+        fso.DeleteFile caminhoDXF, True
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel substituir o DXF existente:" & _
+                vbCrLf & caminhoDXF & vbCrLf & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    Err.Clear
+    Set docDesenho = CATIA.Documents.Add("Drawing")
+    If Err.Number <> 0 Or docDesenho Is Nothing Then
+        MsgBox "Nao foi possivel criar o CATDrawing: " & Err.Description
+        Exit Sub
+    End If
+
+    Set folha = docDesenho.Sheets.ActiveSheet
+    Set vista = folha.Views.Add("Vista Planificada")
+    If Err.Number <> 0 Or vista Is Nothing Then
+        erro = Err.Description
+        Err.Clear
+        docDesenho.Close
+        MsgBox "Nao foi possivel criar a vista planificada: " & erro
+        Exit Sub
+    End If
+
+    Set comportamento = vista.GenerativeBehavior
+    comportamento.Document = docPeca
+    vista.Scale = 1
+
+    ' DefineUnfoldedView recebe os dois vetores do plano; o produto vetorial
+    ' deles define a direcao de projecao da vista planificada.
+    comportamento.DefineUnfoldedView _
+        planoFace(3), planoFace(4), planoFace(5), _
+        planoFace(6), planoFace(7), planoFace(8)
+    vista.x = 150
+    vista.y = 150
+    comportamento.ForceUpdate
+    docDesenho.Update
+
+    If Err.Number <> 0 Then
+        erro = Err.Description
+        Err.Clear
+        docDesenho.Close
+        MsgBox "Falha ao gerar a vista planificada: " & erro
+        Exit Sub
+    End If
+
+    ' DrawingView.Size retorna xmin, xmax, ymin e ymax em milimetros.
+    Err.Clear
+    vista.Size caixaVista
+    If Err.Number <> 0 Then
+        erro = Err.Description
+        Err.Clear
+        docDesenho.Close
+        MsgBox "Nao foi possivel medir o contorno planificado: " & erro
+        Exit Sub
+    End If
+
+    comprimentoPlano = Abs(CDbl(caixaVista(1)) - CDbl(caixaVista(0)))
+    larguraPlano = Abs(CDbl(caixaVista(3)) - CDbl(caixaVista(2)))
+    If comprimentoPlano <= 0 Or larguraPlano <= 0 Then
+        docDesenho.Close
+        MsgBox "A vista planificada retornou medidas nulas. Verifique se " & _
+            "a peca e uma chapa planificavel e se a face selecionada e valida."
+        Exit Sub
+    End If
+
+    Err.Clear
+    docDesenho.ExportData caminhoDXF, "dxf"
+    If Err.Number <> 0 Then
+        erro = Err.Description
+        Err.Clear
+        docDesenho.Close
+        MsgBox "Falha ao exportar o DXF da planificacao: " & erro
+        Exit Sub
+    End If
+
+    docDesenho.Close
+
+    If Not fso.FileExists(caminhoDXF) Then
+        MsgBox "O CATIA nao criou o arquivo DXF esperado:" & vbCrLf & caminhoDXF
+        Exit Sub
+    End If
+    If fso.GetFile(caminhoDXF).Size = 0 Then
+        MsgBox "O arquivo DXF da planificacao foi criado, mas esta vazio:" & _
+            vbCrLf & caminhoDXF
+        Exit Sub
+    End If
+
+    If Not AtualizarPropriedadesPlanificacao(docPeca, espessura, _
+        comprimentoPlano, larguraPlano, mensagemPropriedades) Then
+        MsgBox "O DXF foi exportado, mas nao foi possivel atualizar/salvar " & _
+            "as propriedades dimensionais do CATPart:" & vbCrLf & _
+            mensagemPropriedades, vbCritical
+        Exit Sub
+    End If
+
+    MsgBox "DXF da planificacao gerado:" & vbCrLf & caminhoDXF & _
+        vbCrLf & vbCrLf & mensagemPropriedades, vbInformation
+
+End Sub
+
+
+' Localiza e le o parametro nativo de espessura de chapa pela mesma
+' estrutura Sheet Metal Parameters usada na macro Exportar_Chapas.
+Function ObterEspessuraSheetMetal(oPart, ByRef espessura, ByRef mensagem)
+
+    On Error Resume Next
+
+    Dim parametros, parametro, i, nome
+
+    ObterEspessuraSheetMetal = False
+    Set parametros = oPart.Parameters
+    If Err.Number <> 0 Or parametros Is Nothing Then
+        mensagem = "Nao foi possivel acessar os parametros do CATPart: " & _
+            Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    For i = 1 To parametros.Count
+        Err.Clear
+        Set parametro = parametros.Item(i)
+        If Err.Number = 0 And Not parametro Is Nothing Then
+            nome = LCase(CStr(parametro.Name))
+            If InStr(nome, "sheet metal") > 0 And _
+               InStr(nome, "\thickness") > 0 Then
+                Err.Clear
+                espessura = CDbl(parametro.Value)
+                If Err.Number = 0 And espessura > 0 Then
+                    ObterEspessuraSheetMetal = True
+                    Exit Function
+                End If
+            End If
+        End If
+    Next
+
+    mensagem = "Nao foi encontrado um parametro Thickness valido em " & _
+        "Sheet Metal Parameters (ex.: Sheet Metal Parameters.1\Thickness)."
+End Function
+
+
+Function AtualizarPropriedadesPlanificacao(oDoc, espessura, lado1, lado2, mensagem)
+
+    On Error Resume Next
+
+    Dim valores(2), nomes(2), texto(2)
+    Dim produto, propriedades, parametro
+    Dim i
+    Dim fso, nomeArquivo, nomesArquivo, nomePropriedade
+
+    AtualizarPropriedadesPlanificacao = False
+    valores(0) = CDbl(espessura)
+    If CDbl(lado1) <= CDbl(lado2) Then
+        valores(1) = CDbl(lado1)
+        valores(2) = CDbl(lado2)
+    Else
+        valores(1) = CDbl(lado2)
+        valores(2) = CDbl(lado1)
+    End If
+
+    nomes(0) = "DIAM_ESP"
+    nomes(1) = "LARG"
+    nomes(2) = "COMP"
+    For i = 0 To 2
+        If i = 0 Then
+            texto(i) = Replace(FormatNumber(valores(i), 2, -1, 0, 0), ".", ",")
+        Else
+            texto(i) = Replace(FormatNumber(valores(i), 1, -1, 0, 0), ".", ",")
+        End If
+    Next
+
+    Set produto = oDoc.Product
+    Set propriedades = produto.UserRefProperties
+    If Err.Number <> 0 Or propriedades Is Nothing Then
+        mensagem = "Nao foi possivel acessar UserRefProperties: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    For i = 0 To 2
+        Err.Clear
+        Set parametro = Nothing
+        Set parametro = propriedades.Item(nomes(i))
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            Err.Clear
+            Set parametro = propriedades.CreateString(nomes(i), texto(i))
+        Else
+            parametro.Value = texto(i)
+        End If
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            mensagem = "Falha ao criar/atualizar a propriedade " & nomes(i) & _
+                ": " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+    Next
+
+    Err.Clear
+    Set parametro = Nothing
+    Set parametro = propriedades.Item("PROCESSO")
+    If Err.Number <> 0 Or parametro Is Nothing Then
+        Err.Clear
+        Set parametro = propriedades.CreateString("PROCESSO", "LASER + DOBRA")
+    Else
+        parametro.Value = "LASER + DOBRA"
+    End If
+    If Err.Number <> 0 Or parametro Is Nothing Then
+        mensagem = "Falha ao criar/atualizar a propriedade PROCESSO: " & _
+            Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    nomeArquivo = fso.GetBaseName(oDoc.FullName)
+    nomesArquivo = Array("DXF", "STEP")
+    For i = 0 To 1
+        nomePropriedade = nomesArquivo(i)
+        Err.Clear
+        Set parametro = Nothing
+        Set parametro = propriedades.Item(nomePropriedade)
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            Err.Clear
+            Set parametro = propriedades.CreateString(nomePropriedade, nomeArquivo)
+        Else
+            parametro.Value = nomeArquivo
+        End If
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            mensagem = "Falha ao criar/atualizar a propriedade " & _
+                nomePropriedade & ": " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+    Next
+
+    Err.Clear
+    oDoc.Save
+    If Err.Number <> 0 Then
+        mensagem = "As propriedades foram atualizadas, mas o CATPart nao " & _
+            "pode ser salvo: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    mensagem = "Propriedades atualizadas e CATPart salvo:" & vbCrLf & _
+        "DIAM_ESP = " & texto(0) & " mm" & vbCrLf & _
+        "LARG = " & texto(1) & " mm" & vbCrLf & _
+        "COMP = " & texto(2) & " mm" & vbCrLf & _
+        "PROCESSO = LASER + DOBRA" & vbCrLf & _
+        "DXF = " & nomeArquivo & vbCrLf & _
+        "STEP = " & nomeArquivo
+    AtualizarPropriedadesPlanificacao = True
+End Function

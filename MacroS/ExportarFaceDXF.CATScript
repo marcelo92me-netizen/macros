@@ -17,6 +17,7 @@ Sub CATMain()
     Dim mensuravel
     Dim plano(8)
     Dim fso
+    Dim pastaDXF
     Dim caminhoDXF
     Dim docDesenho
     Dim folha
@@ -84,7 +85,18 @@ Sub CATMain()
     End If
 
     Set fso = CreateObject("Scripting.FileSystemObject")
-    caminhoDXF = fso.GetParentFolderName(docPeca.FullName) & "\" & _
+    pastaDXF = fso.GetParentFolderName(docPeca.FullName) & "\DXF"
+    If Not fso.FolderExists(pastaDXF) Then
+        Err.Clear
+        fso.CreateFolder pastaDXF
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel criar a pasta DXF:" & vbCrLf & _
+                pastaDXF & vbCrLf & Err.Description, vbCritical
+            Exit Sub
+        End If
+    End If
+
+    caminhoDXF = pastaDXF & "\" & _
         fso.GetBaseName(docPeca.FullName) & ".dxf"
 
     ' O DXF e recriado a cada execucao.
@@ -285,6 +297,7 @@ Function AtualizarPropriedadesDimensoes(oDoc, mensagem)
     Dim oPart, oBody, dimensoes, valores(2)
     Dim i, j, temporario, produto, propriedades, parametro
     Dim nomes(2), texto(2)
+    Dim fso, nomeArquivo, nomesArquivo, nomePropriedade
 
     AtualizarPropriedadesDimensoes = False
     Set oPart = oDoc.Part
@@ -326,7 +339,11 @@ Function AtualizarPropriedadesDimensoes(oDoc, mensagem)
     nomes(1) = "LARG"
     nomes(2) = "COMP"
     For i = 0 To 2
-        texto(i) = Replace(FormatNumber(valores(i), 1, -1, 0, 0), ".", ",")
+        If i = 0 Then
+            texto(i) = Replace(FormatNumber(valores(i), 2, -1, 0, 0), ".", ",")
+        Else
+            texto(i) = Replace(FormatNumber(valores(i), 1, -1, 0, 0), ".", ",")
+        End If
     Next
 
     Set produto = oDoc.Product
@@ -356,6 +373,44 @@ Function AtualizarPropriedadesDimensoes(oDoc, mensagem)
     Next
 
     Err.Clear
+    Set parametro = Nothing
+    Set parametro = propriedades.Item("PROCESSO")
+    If Err.Number <> 0 Or parametro Is Nothing Then
+        Err.Clear
+        Set parametro = propriedades.CreateString("PROCESSO", "LASER")
+    Else
+        parametro.Value = "LASER"
+    End If
+    If Err.Number <> 0 Or parametro Is Nothing Then
+        mensagem = "Falha ao criar/atualizar a propriedade PROCESSO: " & _
+            Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    nomeArquivo = fso.GetBaseName(oDoc.FullName)
+    nomesArquivo = Array("DXF", "STEP")
+    For i = 0 To 1
+        nomePropriedade = nomesArquivo(i)
+        Err.Clear
+        Set parametro = Nothing
+        Set parametro = propriedades.Item(nomePropriedade)
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            Err.Clear
+            Set parametro = propriedades.CreateString(nomePropriedade, nomeArquivo)
+        Else
+            parametro.Value = nomeArquivo
+        End If
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            mensagem = "Falha ao criar/atualizar a propriedade " & _
+                nomePropriedade & ": " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+    Next
+
+    Err.Clear
     oDoc.Save
     If Err.Number <> 0 Then
         mensagem = "As propriedades foram atualizadas, mas o CATPart nao " & _
@@ -367,7 +422,10 @@ Function AtualizarPropriedadesDimensoes(oDoc, mensagem)
     mensagem = "Propriedades atualizadas e CATPart salvo:" & vbCrLf & _
         "DIAM_ESP = " & texto(0) & " mm" & vbCrLf & _
         "LARG = " & texto(1) & " mm" & vbCrLf & _
-        "COMP = " & texto(2) & " mm"
+        "COMP = " & texto(2) & " mm" & vbCrLf & _
+        "PROCESSO = LASER" & vbCrLf & _
+        "DXF = " & nomeArquivo & vbCrLf & _
+        "STEP = " & nomeArquivo
     AtualizarPropriedadesDimensoes = True
 End Function
 
