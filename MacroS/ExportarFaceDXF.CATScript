@@ -1,0 +1,387 @@
+Option Explicit
+
+' Seleciona uma face plana do CATPart ativo, cria uma vista generativa
+' orientada pelo plano da face, exporta para DXF e fecha o CATDrawing.
+' CATIA V5 CATScript.
+
+Sub CATMain()
+
+    On Error Resume Next
+
+    Dim docPeca
+    Dim selecao
+    Dim statusSelecao
+    Dim elementoSelecionado
+    Dim referenciaFace
+    Dim spaWorkbench
+    Dim mensuravel
+    Dim plano(8)
+    Dim fso
+    Dim caminhoDXF
+    Dim docDesenho
+    Dim folha
+    Dim vista
+    Dim comportamento
+    Dim erroExportacao
+    Dim mensagemDimensoes
+
+    Err.Clear
+    Set docPeca = CATIA.ActiveDocument
+    If Err.Number <> 0 Or docPeca Is Nothing Then
+        MsgBox "Nao foi possivel identificar o documento ativo."
+        Exit Sub
+    End If
+
+    If TypeName(docPeca) <> "PartDocument" Then
+        MsgBox "Ative um CATPart antes de executar esta macro."
+        Exit Sub
+    End If
+
+    If Trim(docPeca.FullName) = "" Then
+        MsgBox "Salve o CATPart antes de executar a macro."
+        Exit Sub
+    End If
+
+    Set selecao = docPeca.Selection
+    selecao.Clear
+
+    statusSelecao = selecao.SelectElement2(Array("Face"), _
+        "Selecione uma face plana para gerar o DXF", False)
+
+    If statusSelecao <> "Normal" Then
+        selecao.Clear
+        Exit Sub
+    End If
+
+    Err.Clear
+    Set elementoSelecionado = selecao.Item2(1)
+    Set referenciaFace = elementoSelecionado.Reference
+    selecao.Clear
+
+    If Err.Number <> 0 Or referenciaFace Is Nothing Then
+        MsgBox "Nao foi possivel obter a referencia da face selecionada."
+        Exit Sub
+    End If
+
+    Set spaWorkbench = docPeca.GetWorkbench("SPAWorkbench")
+    If Err.Number <> 0 Or spaWorkbench Is Nothing Then
+        MsgBox "Nao foi possivel acessar o SPAWorkbench."
+        Exit Sub
+    End If
+
+    Set mensuravel = spaWorkbench.GetMeasurable(referenciaFace)
+    If Err.Number <> 0 Or mensuravel Is Nothing Then
+        MsgBox "Nao foi possivel medir a face selecionada."
+        Exit Sub
+    End If
+
+    Err.Clear
+    mensuravel.GetPlane plano
+    If Err.Number <> 0 Then
+        Err.Clear
+        MsgBox "A face selecionada nao e plana. Selecione uma face plana."
+        Exit Sub
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    caminhoDXF = fso.GetParentFolderName(docPeca.FullName) & "\" & _
+        fso.GetBaseName(docPeca.FullName) & ".dxf"
+
+    ' O DXF e recriado a cada execucao.
+    If fso.FileExists(caminhoDXF) Then
+        Err.Clear
+        fso.DeleteFile caminhoDXF, True
+        If Err.Number <> 0 Then
+            MsgBox "Nao foi possivel substituir o DXF existente:" & _
+                vbCrLf & caminhoDXF & vbCrLf & Err.Description
+            Exit Sub
+        End If
+    End If
+
+    Err.Clear
+    Set docDesenho = CATIA.Documents.Add("Drawing")
+    If Err.Number <> 0 Or docDesenho Is Nothing Then
+        MsgBox "Nao foi possivel criar o CATDrawing: " & Err.Description
+        Exit Sub
+    End If
+
+    Set folha = docDesenho.Sheets.ActiveSheet
+    Set vista = folha.Views.Add("Vista da Face")
+    If Err.Number <> 0 Or vista Is Nothing Then
+        MsgBox "Nao foi possivel criar a vista no CATDrawing: " & Err.Description
+        docDesenho.Close
+        Exit Sub
+    End If
+
+    Set comportamento = vista.GenerativeBehavior
+    comportamento.Document = docPeca
+
+    ' GetPlane: origem [0..2], vetor 1 [3..5], vetor 2 [6..8].
+    comportamento.DefineFrontView plano(3), plano(4), plano(5), _
+        plano(6), plano(7), plano(8)
+
+    vista.x = 150
+    vista.y = 150
+    comportamento.ForceUpdate
+    docDesenho.Update
+
+    If Err.Number <> 0 Then
+        MsgBox "Falha ao gerar a vista da face: " & Err.Description
+        docDesenho.Close
+        Exit Sub
+    End If
+
+    Err.Clear
+    docDesenho.ExportData caminhoDXF, "dxf"
+    erroExportacao = Err.Number
+    If erroExportacao <> 0 Then
+        MsgBox "Falha ao exportar o DXF: " & Err.Description
+        Err.Clear
+        docDesenho.Close
+        Exit Sub
+    End If
+
+    docDesenho.Close
+
+    If Not AtualizarPropriedadesDimensoes(docPeca, mensagemDimensoes) Then
+        MsgBox "O DXF foi exportado, mas nao foi possivel atualizar/salvar " & _
+            "as propriedades dimensionais do CATPart:" & vbCrLf & _
+            mensagemDimensoes, vbCritical
+        Exit Sub
+    End If
+
+    If fso.FileExists(caminhoDXF) Then
+        If fso.GetFile(caminhoDXF).Size > 0 Then
+            MsgBox "DXF gerado com sucesso:" & vbCrLf & caminhoDXF & _
+                vbCrLf & vbCrLf & mensagemDimensoes
+        Else
+            MsgBox "O arquivo DXF foi criado, mas esta vazio:" & vbCrLf & caminhoDXF
+        End If
+    Else
+        MsgBox "O CATIA nao criou o arquivo DXF esperado:" & vbCrLf & caminhoDXF
+    End If
+
+End Sub
+
+
+' Calcula as tres dimensoes pela bounding box nos eixos globais, usando
+' os mesmos extremos geometricos da macro RelatorioAnaliseDimensoes.
+Function CalcularDimensoesGlobais(oPart, oDoc, oBody)
+
+    On Error Resume Next
+
+    Dim hb, hsf, eixos(2), extremidades(5), planos(5)
+    Dim refBody, measurable, resultados(2)
+    Dim i, minmax
+
+    Set hb = oPart.HybridBodies.Add()
+    hb.Name = "TMP_ANALISE_GLOBAL"
+    Set hsf = oPart.HybridShapeFactory
+    CriarEixosGlobais hsf, hb, eixos
+    oPart.Update
+
+    Set refBody = oPart.CreateReferenceFromObject(oBody)
+
+    For i = 0 To 5
+        If i Mod 2 = 0 Then
+            minmax = 1
+        Else
+            minmax = 0
+        End If
+
+        Select Case i
+            Case 0, 1
+                Set extremidades(i) = CriarExtremo(hsf, refBody, _
+                    eixos(0), eixos(1), eixos(2), minmax)
+            Case 2, 3
+                Set extremidades(i) = CriarExtremo(hsf, refBody, _
+                    eixos(1), eixos(2), eixos(0), minmax)
+            Case 4, 5
+                Set extremidades(i) = CriarExtremo(hsf, refBody, _
+                    eixos(2), eixos(0), eixos(1), minmax)
+        End Select
+
+        hb.AppendHybridShape extremidades(i)
+        extremidades(i).Name = "TMP_EXTREMO_" & CStr(i + 1)
+    Next
+
+    oPart.Update
+
+    For i = 0 To 5
+        Select Case i
+            Case 0, 1
+                Set planos(i) = hsf.AddNewPlaneNormal(eixos(0), extremidades(i))
+            Case 2, 3
+                Set planos(i) = hsf.AddNewPlaneNormal(eixos(1), extremidades(i))
+            Case 4, 5
+                Set planos(i) = hsf.AddNewPlaneNormal(eixos(2), extremidades(i))
+        End Select
+        hb.AppendHybridShape planos(i)
+        planos(i).Name = "TMP_PLANO_" & CStr(i + 1)
+    Next
+
+    oPart.Update
+    For i = 0 To 2
+        Set measurable = oDoc.GetWorkbench("SPAWorkbench").GetMeasurable( _
+            oPart.CreateReferenceFromObject(planos(i * 2)))
+        resultados(i) = measurable.GetMinimumDistance( _
+            oPart.CreateReferenceFromObject(planos(i * 2 + 1)))
+    Next
+
+    If Err.Number <> 0 Then
+        CalcularDimensoesGlobais = Empty
+        Exit Function
+    End If
+
+    CalcularDimensoesGlobais = resultados
+End Function
+
+
+Sub CriarEixosGlobais(hsf, hb, eixos)
+    Dim p1, p2
+
+    Set p1 = hsf.AddNewPointCoord(-20000, 0, 0)
+    Set p2 = hsf.AddNewPointCoord(20000, 0, 0)
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+    Set eixos(0) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(0)
+
+    Set p1 = hsf.AddNewPointCoord(0, -20000, 0)
+    Set p2 = hsf.AddNewPointCoord(0, 20000, 0)
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+    Set eixos(1) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(1)
+
+    Set p1 = hsf.AddNewPointCoord(0, 0, -20000)
+    Set p2 = hsf.AddNewPointCoord(0, 0, 20000)
+    hb.AppendHybridShape p1
+    hb.AppendHybridShape p2
+    Set eixos(2) = hsf.AddNewLinePtPt(p1, p2)
+    hb.AppendHybridShape eixos(2)
+End Sub
+
+
+Function CriarExtremo(hsf, refBody, eixo1, eixo2, eixo3, minmax)
+    Dim d1, d2, d3, ext
+    Set d1 = hsf.AddNewDirection(eixo1)
+    Set d2 = hsf.AddNewDirection(eixo2)
+    Set d3 = hsf.AddNewDirection(eixo3)
+    Set ext = hsf.AddNewExtremum(refBody, d1, minmax)
+    ext.Direction2 = d2
+    ext.ExtremumType2 = 1
+    ext.Direction3 = d3
+    ext.ExtremumType3 = 1
+    ext.Compute
+    Set CriarExtremo = ext
+End Function
+
+
+Function AtualizarPropriedadesDimensoes(oDoc, mensagem)
+
+    On Error Resume Next
+
+    Dim oPart, oBody, dimensoes, valores(2)
+    Dim i, j, temporario, produto, propriedades, parametro
+    Dim nomes(2), texto(2)
+
+    AtualizarPropriedadesDimensoes = False
+    Set oPart = oDoc.Part
+    Set oBody = oPart.MainBody
+
+    If oBody.Shapes.Count = 0 Then
+        mensagem = "O MainBody nao possui geometria para analisar."
+        Exit Function
+    End If
+
+    oPart.Update
+    Err.Clear
+    dimensoes = CalcularDimensoesGlobais(oPart, oDoc, oBody)
+    If Err.Number <> 0 Then
+        mensagem = "Falha no calculo da bounding box global: " & Err.Description
+        Err.Clear
+        LimparTemporarioGlobal oDoc, oPart
+        Exit Function
+    End If
+
+    valores(0) = CDbl(dimensoes(0))
+    valores(1) = CDbl(dimensoes(1))
+    valores(2) = CDbl(dimensoes(2))
+    LimparTemporarioGlobal oDoc, oPart
+    oPart.Update
+
+    ' Ordena do menor para o maior: DIAM_ESP, LARG e COMP.
+    For i = 0 To 1
+        For j = i + 1 To 2
+            If valores(i) > valores(j) Then
+                temporario = valores(i)
+                valores(i) = valores(j)
+                valores(j) = temporario
+            End If
+        Next
+    Next
+
+    nomes(0) = "DIAM_ESP"
+    nomes(1) = "LARG"
+    nomes(2) = "COMP"
+    For i = 0 To 2
+        texto(i) = Replace(FormatNumber(valores(i), 1, -1, 0, 0), ".", ",")
+    Next
+
+    Set produto = oDoc.Product
+    Set propriedades = produto.UserRefProperties
+    If Err.Number <> 0 Or propriedades Is Nothing Then
+        mensagem = "Nao foi possivel acessar UserRefProperties: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    For i = 0 To 2
+        Err.Clear
+        Set parametro = Nothing
+        Set parametro = propriedades.Item(nomes(i))
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            Err.Clear
+            Set parametro = propriedades.CreateString(nomes(i), texto(i))
+        Else
+            parametro.Value = texto(i)
+        End If
+        If Err.Number <> 0 Or parametro Is Nothing Then
+            mensagem = "Falha ao criar/atualizar a propriedade " & nomes(i) & _
+                ": " & Err.Description
+            Err.Clear
+            Exit Function
+        End If
+    Next
+
+    Err.Clear
+    oDoc.Save
+    If Err.Number <> 0 Then
+        mensagem = "As propriedades foram atualizadas, mas o CATPart nao " & _
+            "pode ser salvo: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    mensagem = "Propriedades atualizadas e CATPart salvo:" & vbCrLf & _
+        "DIAM_ESP = " & texto(0) & " mm" & vbCrLf & _
+        "LARG = " & texto(1) & " mm" & vbCrLf & _
+        "COMP = " & texto(2) & " mm"
+    AtualizarPropriedadesDimensoes = True
+End Function
+
+
+Sub LimparTemporarioGlobal(oDoc, oPart)
+    On Error Resume Next
+    Dim selecao, temporario
+    Set selecao = oDoc.Selection
+    Set temporario = oPart.HybridBodies.Item("TMP_ANALISE_GLOBAL")
+    If Err.Number = 0 And Not temporario Is Nothing Then
+        selecao.Clear
+        selecao.Add temporario
+        selecao.Delete
+    End If
+    selecao.Clear
+    Err.Clear
+End Sub
