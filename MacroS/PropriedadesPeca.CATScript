@@ -327,12 +327,24 @@ Sub CATMain()
     Next
 
     '------------------------------------------
-    ' 9. Resumo
+    ' 9. Salvar as alteracoes no documento ativo
+    '------------------------------------------
+
+    Err.Clear
+    doc.Save
+    If Err.Number <> 0 Then
+        MsgBox "As propriedades foram gravadas, mas nao foi possivel salvar o documento." & _
+               vbCrLf & Err.Description, vbCritical
+        Exit Sub
+    End If
+
+    '------------------------------------------
+    ' 10. Resumo
     '------------------------------------------
 
     MsgBox "Propriedades gravadas: " & gravadas & vbCrLf & vbCrLf & _
            resumo & vbCrLf & _
            "Destino: " & tipoDestino & vbCrLf & _
-           "Salve o documento no CATIA.", vbInformation
+           "Documento salvo no CATIA.", vbInformation
 
 End Sub
