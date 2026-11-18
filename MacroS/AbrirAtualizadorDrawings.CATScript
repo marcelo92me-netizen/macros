@@ -1,0 +1,32 @@
+' =========================================================
+' Abre a janela C# Atualizador de Drawings a partir do CATIA V5
+'
+'
+' Se a pasta do projeto for movida, atualize o caminho em CAMINHO_EXE.
+'
+' No CATIA, execute esta macro pelo menu Tools > Macro > Macros.
+' O CATIA deve estar aberto antes de executar a janela.
+' =========================================================
+
+Option Explicit
+
+Sub CATMain()
+    Dim fso, shell, exePath, comando
+    Const CAMINHO_EXE = "C:\Users\marcelo.lara\Desktop\marcelo\Torque\CATIA\MacroS\Torque.Catia.DrawingUpdater\bin\Release\net8.0-windows\Torque.Catia.DrawingUpdater.exe"
+
+    exePath = CAMINHO_EXE
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set shell = CreateObject("WScript.Shell")
+
+    If Not fso.FileExists(exePath) Then
+        MsgBox "O executável do Atualizador de Drawings não foi encontrado:" & vbCrLf & _
+               exePath & vbCrLf & vbCrLf & _
+               "Compile o projeto C# e atualize CAMINHO_EXE nesta macro se a pasta tiver sido movida.", _
+               vbExclamation, "Atualizador de Drawings"
+        Exit Sub
+    End If
+
+    ' WScript.Shell.Run inicia um aplicativo com janela sem bloquear o CATIA.
+    comando = Chr(34) & exePath & Chr(34)
+    shell.Run comando, 1, False
+End Sub

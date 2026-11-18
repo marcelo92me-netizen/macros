@@ -1,0 +1,173 @@
+' Macro executada dentro do CATIA. Recebe a solicitação da janela C# por arquivo Unicode.
+Option Explicit
+
+Sub CATMain()
+    Dim fso, shell, jobPath, job, reportPath, total, i, path
+    Dim descProjeto, codigoProjeto, versaoProjeto, dataProjeto, solicitante, art
+    Dim okCount, errorCount, notes, result, report
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set shell = CreateObject("WScript.Shell")
+    jobPath = fso.BuildPath(shell.ExpandEnvironmentStrings("%TEMP%"), "TorqueDrawingUpdater_job.txt")
+    If Not fso.FileExists(jobPath) Then
+        MsgBox "Solicitação de atualização não encontrada: " & jobPath, vbCritical, "Atualizador de Drawings"
+        Exit Sub
+    End If
+
+    Set job = fso.OpenTextFile(jobPath, 1, False, -1)
+    descProjeto = job.ReadLine
+    codigoProjeto = job.ReadLine
+    versaoProjeto = job.ReadLine
+    dataProjeto = job.ReadLine
+    solicitante = job.ReadLine
+    art = job.ReadLine
+    reportPath = job.ReadLine
+    total = CInt(job.ReadLine)
+
+    Set report = fso.CreateTextFile(reportPath, True, True)
+    report.WriteLine "RELATÓRIO DE ATUALIZAÇÃO DE DRAWINGS"
+    report.WriteLine String(38, "=")
+    report.WriteLine "Início: " & Now
+    report.WriteLine "Descrição: " & descProjeto
+    report.WriteLine "Código: " & codigoProjeto
+    report.WriteLine "Versão: " & versaoProjeto
+    report.WriteLine "Data do projeto: " & dataProjeto
+    report.WriteLine "Solicitante: " & solicitante
+    report.WriteLine "ART: " & art
+    report.WriteLine ""
+    report.WriteLine "DETALHE POR ARQUIVO"
+    report.WriteLine String(38, "-")
+    report.Close
+
+    okCount = 0
+    errorCount = 0
+    For i = 1 To total
+        If job.AtEndOfStream Then Exit For
+        path = job.ReadLine
+        notes = ""
+        result = ProcessarDrawing(path, descProjeto, codigoProjeto, versaoProjeto, dataProjeto, solicitante, art, notes)
+        Set report = fso.OpenTextFile(reportPath, 8, False, True)
+        If result = "OK" Then
+            okCount = okCount + 1
+            report.WriteLine "[OK] " & path
+            If Len(notes) > 0 Then report.WriteLine "     Avisos: " & notes
+        Else
+            errorCount = errorCount + 1
+            report.WriteLine "[ERRO] " & path
+            report.WriteLine "       " & result
+        End If
+        report.Close
+    Next
+    job.Close
+
+    Set report = fso.OpenTextFile(reportPath, 8, False, True)
+    report.WriteLine ""
+    report.WriteLine "RESUMO"
+    report.WriteLine "Encontrados: " & total
+    report.WriteLine "Atualizados: " & okCount
+    report.WriteLine "Com erro: " & errorCount
+    report.WriteLine "Fim: " & Now
+    report.WriteLine "FIM DO PROCESSAMENTO"
+    report.Close
+
+    MsgBox "Atualização concluída." & vbCrLf & _
+           "Atualizados: " & okCount & vbCrLf & _
+           "Com erro: " & errorCount & vbCrLf & vbCrLf & _
+           "Relatório: " & reportPath, vbInformation, "Atualizador de Drawings"
+End Sub
+
+Function ProcessarDrawing(caminho, descricao, codigo, versao, data, solicitante, art, ByRef avisos)
+    Dim doc, folhas, folha, vistas, vista, textos, texto
+    Dim valores, nomes, encontrados, i, j, k, l, nome, erro
+
+    ProcessarDrawing = ""
+    erro = ""
+    Set doc = Nothing
+    On Error Resume Next
+    Set doc = CATIA.Documents.Open(caminho)
+    If Err.Number <> 0 Then
+        ProcessarDrawing = "Falha ao abrir o Drawing: " & Err.Description
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    valores = Array(descricao, codigo, versao, data, solicitante, art, versao, data, "TORQUE")
+    nomes = Array("DESC_PROJETO", "CODIGO_PROJETO", "VERSAO_PROJETO", "DATA_PROJETO", _
+                  "SOLICITANTE_PROJETO", "ART_PROJETO", "VERSAO_ART", "DATA_ART", "EMPRESA_ART")
+    Set encontrados = CreateObject("Scripting.Dictionary")
+    For i = 0 To 8
+        encontrados.Add nomes(i), False
+    Next
+
+    On Error Resume Next
+    Set folhas = doc.Sheets
+    If Err.Number <> 0 Then erro = "Falha ao ler folhas: " & Err.Description
+    Err.Clear
+    If Len(erro) = 0 Then
+        For i = 1 To folhas.Count
+            Set folha = folhas.Item(i)
+            If Err.Number <> 0 Then erro = "Falha ao acessar folha " & i & ": " & Err.Description: Err.Clear
+            If Len(erro) > 0 Then Exit For
+            Set vistas = folha.Views
+            If Err.Number <> 0 Then erro = "Falha ao acessar vistas: " & Err.Description: Err.Clear
+            If Len(erro) > 0 Then Exit For
+            For j = 1 To vistas.Count
+                Set vista = vistas.Item(j)
+                If Err.Number <> 0 Then erro = "Falha ao acessar vista: " & Err.Description: Err.Clear
+                If Len(erro) > 0 Then Exit For
+                Set textos = vista.Texts
+                If Err.Number <> 0 Then erro = "Falha ao acessar textos da vista: " & Err.Description: Err.Clear
+                If Len(erro) > 0 Then Exit For
+                For k = 1 To textos.Count
+                    Set texto = textos.Item(k)
+                    If Err.Number = 0 Then
+                        nome = CStr(texto.Name)
+                        If Err.Number = 0 Then
+                            For l = 0 To 8
+                                If nome = nomes(l) Then
+                                    texto.Text = CStr(valores(l))
+                                    If Err.Number = 0 Then encontrados(nomes(l)) = True
+                                    Err.Clear
+                                End If
+                            Next
+                        End If
+                    End If
+                    Err.Clear
+                Next
+            Next
+        Next
+    End If
+    If Len(erro) = 0 Then
+        doc.Save
+        If Err.Number <> 0 Then erro = "Falha ao salvar: " & Err.Description
+        Err.Clear
+    End If
+    If Not doc Is Nothing Then
+        doc.Close
+        If Err.Number <> 0 And Len(erro) = 0 Then erro = "Falha ao fechar: " & Err.Description
+        Err.Clear
+    End If
+    On Error GoTo 0
+
+    If Len(erro) > 0 Then
+        ProcessarDrawing = erro
+        Exit Function
+    End If
+
+    avisos = ""
+    For i = 0 To 4
+        If Not encontrados(nomes(i)) Then
+            If Len(avisos) > 0 Then avisos = avisos & "; "
+            avisos = avisos & "campo obrigatório ausente: " & nomes(i)
+        End If
+    Next
+    For i = 5 To 8
+        If Not encontrados(nomes(i)) Then
+            If Len(avisos) > 0 Then avisos = avisos & "; "
+            avisos = avisos & "campo opcional ausente: " & nomes(i)
+        End If
+    Next
+    ProcessarDrawing = "OK"
+End Function

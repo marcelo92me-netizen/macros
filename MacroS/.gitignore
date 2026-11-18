@@ -1,2 +1,5 @@
 *.txt
 CriarDrawingCotado.CATScript
+Torque.Catia.DrawingUpdater/bin/
+Torque.Catia.DrawingUpdater/obj/
+Torque.Catia.DrawingUpdater/installer/stage_*/
