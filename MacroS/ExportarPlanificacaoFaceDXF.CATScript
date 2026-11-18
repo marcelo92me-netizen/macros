@@ -1,7 +1,7 @@
 Option Explicit
 
-' Seleciona uma face plana do CATPart, usa o plano dessa face para orientar
-' a vista planificada, exporta o DXF e atualiza as propriedades dimensionais.
+' Usa os eixos H e V do primeiro Sketch do PartBody para orientar a vista
+' planificada, exporta o DXF e atualiza as propriedades dimensionais.
 ' O parametro Sheet Metal Parameters/Thickness define DIAM_ESP; COMP e LARG
 ' usam o contorno planificado no Drawing (escala 1:1).
 ' CATIA V5 CATScript.
@@ -10,9 +10,9 @@ Sub CATMain()
 
     On Error Resume Next
 
-    Dim docPeca, part, body, selecao, statusSelecao
-    Dim elementoSelecionado, referenciaFace
-    Dim spaWorkbench, mensuravel, planoFace(8)
+    Dim docPeca, part, body, sketches, sketch
+    Dim planoFace(8), i
+    Dim moduloH, moduloV, produtoEscalar
     Dim espessura, mensagemEspessura
     Dim fso, pastaDXF, caminhoDXF
     Dim docDesenho, folha, vista, comportamento
@@ -43,38 +43,63 @@ Sub CATMain()
         Exit Sub
     End If
 
-    Set selecao = docPeca.Selection
-    selecao.Clear
-    statusSelecao = selecao.SelectElement2(Array("Face"), _
-        "Selecione a face plana que define a orientacao da planificacao", False)
-    If statusSelecao <> "Normal" Then
-        selecao.Clear
+    Err.Clear
+    Set sketches = body.Sketches
+    If Err.Number <> 0 Or sketches Is Nothing Then
+        MsgBox "Nao foi possivel acessar os Sketches do PartBody."
+        Exit Sub
+    End If
+    If sketches.Count = 0 Then
+        MsgBox "O PartBody nao possui Sketches para definir a orientacao."
         Exit Sub
     End If
 
     Err.Clear
-    Set elementoSelecionado = selecao.Item2(1)
-    Set referenciaFace = elementoSelecionado.Reference
-    selecao.Clear
-    If Err.Number <> 0 Or referenciaFace Is Nothing Then
-        MsgBox "Nao foi possivel obter a referencia da face selecionada."
+    Set sketch = sketches.Item(1)
+    If Err.Number <> 0 Or sketch Is Nothing Then
+        MsgBox "Nao foi possivel acessar o primeiro Sketch do PartBody."
         Exit Sub
     End If
 
     Err.Clear
-    Set spaWorkbench = docPeca.GetWorkbench("SPAWorkbench")
-    Set mensuravel = spaWorkbench.GetMeasurable(referenciaFace)
-    If Err.Number <> 0 Or mensuravel Is Nothing Then
-        MsgBox "Nao foi possivel medir a face selecionada."
-        Exit Sub
-    End If
-
-    Err.Clear
-    mensuravel.GetPlane planoFace
+    sketch.GetAbsoluteAxisData planoFace
     If Err.Number <> 0 Then
-        MsgBox "A face selecionada nao e plana. Selecione uma face plana."
+        MsgBox "Nao foi possivel obter os eixos do primeiro Sketch: " & _
+            Err.Description
         Exit Sub
     End If
+
+    ' GetAbsoluteAxisData: 0..2 origem; 3..5 eixo H; 6..8 eixo V.
+    ' Normaliza H e ortogonaliza V antes de usar os eixos na vista planificada.
+    moduloH = Sqr(CDbl(planoFace(3)) * CDbl(planoFace(3)) + _
+                  CDbl(planoFace(4)) * CDbl(planoFace(4)) + _
+                  CDbl(planoFace(5)) * CDbl(planoFace(5)))
+    If moduloH < 0.0000001 Then
+        MsgBox "O eixo H do primeiro Sketch e invalido."
+        Exit Sub
+    End If
+    For i = 3 To 5
+        planoFace(i) = CDbl(planoFace(i)) / moduloH
+    Next
+
+    produtoEscalar = CDbl(planoFace(3)) * CDbl(planoFace(6)) + _
+                     CDbl(planoFace(4)) * CDbl(planoFace(7)) + _
+                     CDbl(planoFace(5)) * CDbl(planoFace(8))
+    For i = 0 To 2
+        planoFace(i + 6) = CDbl(planoFace(i + 6)) - _
+            produtoEscalar * CDbl(planoFace(i + 3))
+    Next
+
+    moduloV = Sqr(CDbl(planoFace(6)) * CDbl(planoFace(6)) + _
+                  CDbl(planoFace(7)) * CDbl(planoFace(7)) + _
+                  CDbl(planoFace(8)) * CDbl(planoFace(8)))
+    If moduloV < 0.0000001 Then
+        MsgBox "O eixo V do primeiro Sketch e invalido."
+        Exit Sub
+    End If
+    For i = 6 To 8
+        planoFace(i) = CDbl(planoFace(i)) / moduloV
+    Next
 
     If Not ObterEspessuraSheetMetal(part, espessura, mensagemEspessura) Then
         MsgBox mensagemEspessura, vbCritical
@@ -161,7 +186,7 @@ Sub CATMain()
     If comprimentoPlano <= 0 Or larguraPlano <= 0 Then
         docDesenho.Close
         MsgBox "A vista planificada retornou medidas nulas. Verifique se " & _
-            "a peca e uma chapa planificavel e se a face selecionada e valida."
+            "a peca e uma chapa planificavel e possui um primeiro Sketch valido."
         Exit Sub
     End If
 

@@ -150,10 +150,16 @@
                     If pos > 1 Then
                         chave = Trim(Left(linha, pos - 1))
                         valor = Mid(linha, pos + 1)
-                        Set campo = Nothing
-                        Set campo = document.getElementById("txt_" & chave)
-                        If Not campo Is Nothing Then
-                            campo.value = valor
+                        If chave = "NOME_PECA" Then
+                            If Trim(valor) <> "" Then
+                                document.title = "Propriedades da peca - " & Trim(valor)
+                            End If
+                        Else
+                            Set campo = Nothing
+                            Set campo = document.getElementById("txt_" & chave)
+                            If Not campo Is Nothing Then
+                                campo.value = valor
+                            End If
                         End If
                     End If
                 Loop

@@ -12,7 +12,7 @@ Sub CATMain()
     Dim caminhoHTA, caminhoResultado
     Dim encontrou, i, status
     Dim chaves, valores
-    Dim ok, mensagem, partNumberAtual
+    Dim ok, mensagem, partNumberAtual, nomePeca
     Dim resultadoCampo
 
     chaves = Array( _
@@ -196,6 +196,14 @@ Sub CATMain()
     Set arquivo = fso.CreateTextFile(caminhoResultado, True, True)
 
     arquivo.WriteLine "INICIAL"
+
+    nomePeca = ""
+    On Error Resume Next
+    nomePeca = CStr(refProduto.Name)
+    On Error GoTo 0
+    nomePeca = Replace(nomePeca, vbCr, " ")
+    nomePeca = Replace(nomePeca, vbLf, " ")
+    arquivo.WriteLine "NOME_PECA=" & nomePeca
 
     For i = 0 To UBound(chaves)
         arquivo.WriteLine chaves(i) & "=" & CStr(valores(i))

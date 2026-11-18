@@ -121,6 +121,11 @@ Sub CATMain()
 
     Err.Clear
     valor = ""
+    valor = targetProduct.Name
+    arquivo.WriteLine "NOME_PECA=" & TextoSeguro(valor)
+
+    Err.Clear
+    valor = ""
     valor = targetProduct.DescriptionRef
     If Err.Number <> 0 Then
         Err.Clear
