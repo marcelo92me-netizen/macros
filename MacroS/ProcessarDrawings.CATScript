@@ -2,9 +2,9 @@
 Option Explicit
 
 Sub CATMain()
-    Dim fso, shell, jobPath, job, reportPath, total, i, path
-    Dim descProjeto, codigoProjeto, versaoProjeto, dataProjeto, solicitante, art
-    Dim okCount, errorCount, notes, result, report
+    Dim fso, shell, jobPath, job, reportPath, total, i, caminho
+    Dim descricao, codigo, versao, dataProjeto, solicitante, art, fieldNames(8)
+    Dim successCount, attentionCount, errorCount, changed, fieldErrors, missingRequired, missingOptional, changedText, result, report
 
     Set fso = CreateObject("Scripting.FileSystemObject")
     Set shell = CreateObject("WScript.Shell")
@@ -15,22 +15,25 @@ Sub CATMain()
     End If
 
     Set job = fso.OpenTextFile(jobPath, 1, False, -1)
-    descProjeto = job.ReadLine
-    codigoProjeto = job.ReadLine
-    versaoProjeto = job.ReadLine
+    descricao = job.ReadLine
+    codigo = job.ReadLine
+    versao = job.ReadLine
     dataProjeto = job.ReadLine
     solicitante = job.ReadLine
     art = job.ReadLine
     reportPath = job.ReadLine
+    For i = 0 To 8
+        fieldNames(i) = job.ReadLine
+    Next
     total = CInt(job.ReadLine)
 
     Set report = fso.CreateTextFile(reportPath, True, True)
     report.WriteLine "RELATÓRIO DE ATUALIZAÇÃO DE DRAWINGS"
     report.WriteLine String(38, "=")
     report.WriteLine "Início: " & Now
-    report.WriteLine "Descrição: " & descProjeto
-    report.WriteLine "Código: " & codigoProjeto
-    report.WriteLine "Versão: " & versaoProjeto
+    report.WriteLine "Descrição: " & descricao
+    report.WriteLine "Código: " & codigo
+    report.WriteLine "Versão: " & versao
     report.WriteLine "Data do projeto: " & dataProjeto
     report.WriteLine "Solicitante: " & solicitante
     report.WriteLine "ART: " & art
@@ -39,22 +42,39 @@ Sub CATMain()
     report.WriteLine String(38, "-")
     report.Close
 
-    okCount = 0
+    successCount = 0
+    attentionCount = 0
     errorCount = 0
     For i = 1 To total
         If job.AtEndOfStream Then Exit For
-        path = job.ReadLine
-        notes = ""
-        result = ProcessarDrawing(path, descProjeto, codigoProjeto, versaoProjeto, dataProjeto, solicitante, art, notes)
+        caminho = job.ReadLine
+        changed = ""
+        fieldErrors = ""
+        missingRequired = ""
+        missingOptional = ""
+        result = ProcessarDrawing(caminho, descricao, codigo, versao, dataProjeto, solicitante, art, fieldNames, changed, fieldErrors, missingRequired, missingOptional)
+
         Set report = fso.OpenTextFile(reportPath, 8, False, True)
-        If result = "OK" Then
-            okCount = okCount + 1
-            report.WriteLine "[OK] " & path
-            If Len(notes) > 0 Then report.WriteLine "     Avisos: " & notes
+        If result = "SUCESSO" Then
+            successCount = successCount + 1
+            report.WriteLine "[SUCESSO] " & caminho
+        ElseIf result = "ATENÇÃO" Then
+            attentionCount = attentionCount + 1
+            report.WriteLine "[ATENÇÃO] " & caminho
         Else
             errorCount = errorCount + 1
-            report.WriteLine "[ERRO] " & path
-            report.WriteLine "       " & result
+            report.WriteLine "[ERRO] " & caminho
+        End If
+        If result = "ERRO" Then
+            If Len(changed) > 0 Then report.WriteLine "     Campos preenchidos antes do erro: " & changed
+            report.WriteLine "     Erro de execução: " & fieldErrors
+        Else
+            changedText = changed
+            If Len(changedText) = 0 Then changedText = "nenhum"
+            report.WriteLine "     Campos atualizados: " & changedText
+            If Len(fieldErrors) > 0 Then report.WriteLine "     Campos com erro: " & fieldErrors
+            If Len(missingRequired) > 0 Then report.WriteLine "     Campos obrigatórios ausentes: " & missingRequired
+            If Len(missingOptional) > 0 Then report.WriteLine "     Campos opcionais ausentes: " & missingOptional
         End If
         report.Close
     Next
@@ -64,71 +84,85 @@ Sub CATMain()
     report.WriteLine ""
     report.WriteLine "RESUMO"
     report.WriteLine "Encontrados: " & total
-    report.WriteLine "Atualizados: " & okCount
+    report.WriteLine "Sucesso: " & successCount
+    report.WriteLine "Atenção: " & attentionCount
     report.WriteLine "Com erro: " & errorCount
     report.WriteLine "Fim: " & Now
     report.WriteLine "FIM DO PROCESSAMENTO"
     report.Close
 
     MsgBox "Atualização concluída." & vbCrLf & _
-           "Atualizados: " & okCount & vbCrLf & _
+           "Sucesso: " & successCount & vbCrLf & _
+           "Atenção: " & attentionCount & vbCrLf & _
            "Com erro: " & errorCount & vbCrLf & vbCrLf & _
            "Relatório: " & reportPath, vbInformation, "Atualizador de Drawings"
 End Sub
 
-Function ProcessarDrawing(caminho, descricao, codigo, versao, data, solicitante, art, ByRef avisos)
-    Dim doc, folhas, folha, vistas, vista, textos, texto
-    Dim valores, nomes, encontrados, i, j, k, l, nome, erro
+Function ProcessarDrawing(caminho, descricao, codigo, versao, data, solicitante, art, configuredNames, ByRef alterados, ByRef errosCampos, ByRef ausentesObrigatorios, ByRef ausentesOpcionais)
+    Dim doc, sheets, sheet, views, view, texts, text
+    Dim values, names, updated, active(8), i, j, k, l, nome, erroExecucao, detalheErro
 
-    ProcessarDrawing = ""
-    erro = ""
+    ProcessarDrawing = "ERRO"
+    erroExecucao = ""
+    alterados = ""
+    errosCampos = ""
+    ausentesObrigatorios = ""
+    ausentesOpcionais = ""
+
     Set doc = Nothing
     On Error Resume Next
     Set doc = CATIA.Documents.Open(caminho)
     If Err.Number <> 0 Then
-        ProcessarDrawing = "Falha ao abrir o Drawing: " & Err.Description
+        errosCampos = "Falha ao abrir Drawing: " & Err.Description
         Err.Clear
         On Error GoTo 0
         Exit Function
     End If
     On Error GoTo 0
 
-    valores = Array(descricao, codigo, versao, data, solicitante, art, versao, data, "TORQUE")
-    nomes = Array("DESC_PROJETO", "CODIGO_PROJETO", "VERSAO_PROJETO", "DATA_PROJETO", _
-                  "SOLICITANTE_PROJETO", "ART_PROJETO", "VERSAO_ART", "DATA_ART", "EMPRESA_ART")
-    Set encontrados = CreateObject("Scripting.Dictionary")
+    values = Array(descricao, codigo, versao, data, solicitante, art, versao, data, "TORQUE")
+    If Len(Trim(CStr(art))) = 0 Then values(8) = ""
+    names = configuredNames
+    Set updated = CreateObject("Scripting.Dictionary")
     For i = 0 To 8
-        encontrados.Add nomes(i), False
+        updated.Add names(i), False
+        active(i) = (Len(Trim(CStr(values(i)))) > 0)
     Next
 
     On Error Resume Next
-    Set folhas = doc.Sheets
-    If Err.Number <> 0 Then erro = "Falha ao ler folhas: " & Err.Description
+    Set sheets = doc.Sheets
+    If Err.Number <> 0 Then erroExecucao = "Falha ao acessar folhas: " & Err.Description
     Err.Clear
-    If Len(erro) = 0 Then
-        For i = 1 To folhas.Count
-            Set folha = folhas.Item(i)
-            If Err.Number <> 0 Then erro = "Falha ao acessar folha " & i & ": " & Err.Description: Err.Clear
-            If Len(erro) > 0 Then Exit For
-            Set vistas = folha.Views
-            If Err.Number <> 0 Then erro = "Falha ao acessar vistas: " & Err.Description: Err.Clear
-            If Len(erro) > 0 Then Exit For
-            For j = 1 To vistas.Count
-                Set vista = vistas.Item(j)
-                If Err.Number <> 0 Then erro = "Falha ao acessar vista: " & Err.Description: Err.Clear
-                If Len(erro) > 0 Then Exit For
-                Set textos = vista.Texts
-                If Err.Number <> 0 Then erro = "Falha ao acessar textos da vista: " & Err.Description: Err.Clear
-                If Len(erro) > 0 Then Exit For
-                For k = 1 To textos.Count
-                    Set texto = textos.Item(k)
+    If Len(erroExecucao) = 0 Then
+        For i = 1 To sheets.Count
+            Set sheet = sheets.Item(i)
+            If Err.Number <> 0 Then erroExecucao = "Falha ao acessar folha " & i & ": " & Err.Description: Err.Clear
+            If Len(erroExecucao) > 0 Then Exit For
+            Set views = sheet.Views
+            If Err.Number <> 0 Then erroExecucao = "Falha ao acessar vistas: " & Err.Description: Err.Clear
+            If Len(erroExecucao) > 0 Then Exit For
+            For j = 1 To views.Count
+                Set view = views.Item(j)
+                If Err.Number <> 0 Then erroExecucao = "Falha ao acessar vista: " & Err.Description: Err.Clear
+                If Len(erroExecucao) > 0 Then Exit For
+                Set texts = view.Texts
+                If Err.Number <> 0 Then erroExecucao = "Falha ao acessar textos da vista: " & Err.Description: Err.Clear
+                If Len(erroExecucao) > 0 Then Exit For
+                For k = 1 To texts.Count
+                    Set text = texts.Item(k)
                     If Err.Number = 0 Then
-                        nome = CStr(texto.Name)
+                        nome = CStr(text.Name)
                         If Err.Number = 0 Then
                             For l = 0 To 8
-                                If nome = nomes(l) Then
-                                    texto.Text = CStr(valores(l))
-                                    If Err.Number = 0 Then encontrados(nomes(l)) = True
+                                If nome = names(l) And active(l) Then
+                                    text.Text = CStr(values(l))
+                                    If Err.Number = 0 Then
+                                        updated(names(l)) = True
+                                        alterados = AnexarItem(alterados, names(l))
+                                    Else
+                                        detalheErro = Err.Description
+                                        errosCampos = AnexarItem(errosCampos, names(l) & " (" & detalheErro & ")")
+                                    End If
                                     Err.Clear
                                 End If
                             Next
@@ -139,35 +173,41 @@ Function ProcessarDrawing(caminho, descricao, codigo, versao, data, solicitante,
             Next
         Next
     End If
-    If Len(erro) = 0 Then
+    If Len(erroExecucao) = 0 Then
         doc.Save
-        If Err.Number <> 0 Then erro = "Falha ao salvar: " & Err.Description
+        If Err.Number <> 0 Then erroExecucao = "Falha ao salvar: " & Err.Description
         Err.Clear
     End If
     If Not doc Is Nothing Then
         doc.Close
-        If Err.Number <> 0 And Len(erro) = 0 Then erro = "Falha ao fechar: " & Err.Description
+        If Err.Number <> 0 And Len(erroExecucao) = 0 Then erroExecucao = "Falha ao fechar: " & Err.Description
         Err.Clear
     End If
     On Error GoTo 0
 
-    If Len(erro) > 0 Then
-        ProcessarDrawing = erro
+    If Len(erroExecucao) > 0 Then
+        errosCampos = erroExecucao
+        ProcessarDrawing = "ERRO"
         Exit Function
     End If
 
-    avisos = ""
     For i = 0 To 4
-        If Not encontrados(nomes(i)) Then
-            If Len(avisos) > 0 Then avisos = avisos & "; "
-            avisos = avisos & "campo obrigatório ausente: " & nomes(i)
-        End If
+        If active(i) And Not updated(names(i)) Then ausentesObrigatorios = AnexarItem(ausentesObrigatorios, names(i))
     Next
     For i = 5 To 8
-        If Not encontrados(nomes(i)) Then
-            If Len(avisos) > 0 Then avisos = avisos & "; "
-            avisos = avisos & "campo opcional ausente: " & nomes(i)
-        End If
+        If active(i) And Not updated(names(i)) Then ausentesOpcionais = AnexarItem(ausentesOpcionais, names(i))
     Next
-    ProcessarDrawing = "OK"
+    If Len(errosCampos) > 0 Or Len(ausentesObrigatorios) > 0 Then
+        ProcessarDrawing = "ATENÇÃO"
+    Else
+        ProcessarDrawing = "SUCESSO"
+    End If
+End Function
+
+Function AnexarItem(lista, item)
+    If Len(lista) = 0 Then
+        AnexarItem = item
+    Else
+        AnexarItem = lista & "; " & item
+    End If
 End Function

@@ -1,0 +1,18 @@
+<Window x:Class="Torque.Catia.DrawingUpdater.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Configurações dos campos CATIA" Width="760" Height="610" MinWidth="700" MinHeight="560" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Background="#f3f6fa" FontFamily="Segoe UI">
+ <Grid Margin="26"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel Grid.Row="0" Margin="0,0,0,18"><TextBlock Text="Configurações dos campos" FontSize="23" FontWeight="Bold"/><TextBlock Text="Defina os Feature Names usados para localizar os textos nos Drawings." Foreground="#64748b" Margin="0,5,0,0"/></StackPanel>
+  <Border Grid.Row="1" Background="White" BorderBrush="#e2e8f0" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,0,14"><StackPanel><StackPanel Orientation="Horizontal"><RadioButton x:Name="ModoPadrao" GroupName="ModoCampos" Content="Padrão" IsChecked="True" Margin="0,0,24,0"/><RadioButton x:Name="ModoPersonalizado" GroupName="ModoCampos" Content="PERSONALIZADO"/></StackPanel><TextBlock x:Name="DicaConfiguracao" Text="Os nomes padrão definidos para esta ferramenta serão usados." Foreground="#64748b" FontSize="12" Margin="0,9,0,0"/></StackPanel></Border>
+  <Border Grid.Row="2" Background="White" BorderBrush="#e2e8f0" BorderThickness="1" CornerRadius="10" Padding="18"><ScrollViewer VerticalScrollBarVisibility="Auto"><Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <StackPanel Grid.Row="0" Grid.Column="0"><TextBlock Text="Descrição do projeto"/><TextBox x:Name="CampoDesc" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="0" Grid.Column="2"><TextBlock Text="Código do projeto"/><TextBox x:Name="CampoCodigo" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="0" Grid.Column="4"><TextBlock Text="Versão do projeto"/><TextBox x:Name="CampoVersao" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="1" Grid.Column="0"><TextBlock Text="Data do projeto"/><TextBox x:Name="CampoData" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="1" Grid.Column="2"><TextBlock Text="Solicitante"/><TextBox x:Name="CampoSolicitante" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="1" Grid.Column="4"><TextBlock Text="ART"/><TextBox x:Name="CampoArt" Margin="0,5,0,16"/></StackPanel>
+   <StackPanel Grid.Row="2" Grid.Column="0"><TextBlock Text="Versão da ART"/><TextBox x:Name="CampoVersaoArt" Margin="0,5,0,0"/></StackPanel>
+   <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Text="Data da ART"/><TextBox x:Name="CampoDataArt" Margin="0,5,0,0"/></StackPanel>
+   <StackPanel Grid.Row="2" Grid.Column="4"><TextBlock Text="Empresa da ART"/><TextBox x:Name="CampoEmpresaArt" Margin="0,5,0,0"/>
+   </StackPanel></Grid></ScrollViewer></Border>
+  <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0"><Button Content="Cancelar" IsCancel="True" Padding="18,9" Margin="0,0,10,0"/><Button Content="Salvar configurações" IsDefault="True" Click="Salvar_Click" Background="#022d59" Foreground="White" FontWeight="SemiBold" Padding="18,9" BorderThickness="0"/></StackPanel>
+ </Grid>
+</Window>

@@ -3,7 +3,7 @@
     <SolidColorBrush x:Key="Navy" Color="#022d59"/>
     <SolidColorBrush x:Key="Muted" Color="#64748b"/>
     <Style TargetType="TextBox"><Setter Property="Padding" Value="11,9"/><Setter Property="BorderBrush" Value="#d7e0ea"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="14"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
-    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#172b42"/></Style>
+    <Style x:Key="FieldBadge" TargetType="Border"><Setter Property="Background" Value="#eef2f7"/><Setter Property="CornerRadius" Value="9"/><Setter Property="Padding" Value="9,5"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
     <Style x:Key="PrimaryActionButton" TargetType="Button">
       <Setter Property="Foreground" Value="#FFFFFF"/>
       <Setter Property="Background" Value="#022d59"/>
