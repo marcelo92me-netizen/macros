@@ -1,0 +1,302 @@
+Option Explicit
+
+' Gera um inventario legivel dos elementos de um CATDrawing.
+' O relatorio e salvo ao lado do desenho com o sufixo _RelatorioTemplate.txt.
+' Compatibilidade pretendida: CATIA V5 CATScript.
+
+Sub CATMain()
+    Dim catApp, doc, fso, arquivo, logExecucao, caminho, caminhoLog, pasta, nomeBase, etapa
+    Dim folhas, folha, vistas, vista
+    Dim i, j, k, r, c, idx, totalFolhas, totalVistas, totalTextos, totalDimensoes, totalTabelas, totalGeometrias
+    Dim texto, dimensao, tabela, geometria
+    Dim textos, dimensoes, tabelas, geometrias
+    Dim chamada, valor, nome, tipo, x, y, detalhe, erro
+
+    On Error Resume Next
+    Set catApp = GetObject(, "CATIA.Application")
+    If Err.Number <> 0 Or catApp Is Nothing Then
+        MsgBox "Nao foi possivel acessar o CATIA.", vbCritical, "Relatorio do CATDrawing"
+        Exit Sub
+    End If
+    Err.Clear
+    Set doc = catApp.ActiveDocument
+    If Err.Number <> 0 Or doc Is Nothing Then
+        MsgBox "Nao existe um documento ativo.", vbExclamation, "Relatorio do CATDrawing"
+        Exit Sub
+    End If
+    If TypeName(doc) <> "DrawingDocument" Then
+        MsgBox "Abra um CATDrawing antes de executar esta macro.", vbExclamation, "Relatorio do CATDrawing"
+        Exit Sub
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    If Len(Trim(CStr(doc.FullName))) > 0 Then
+        pasta = fso.GetParentFolderName(doc.FullName)
+        nomeBase = fso.GetBaseName(doc.FullName)
+    Else
+        pasta = fso.GetSpecialFolder(2).Path
+        nomeBase = fso.GetBaseName(doc.Name)
+    End If
+    caminho = fso.BuildPath(pasta, nomeBase & "_RelatorioTemplate.txt")
+    caminhoLog = fso.BuildPath(pasta, nomeBase & "_RelatorioTemplate_Execucao.txt")
+    Err.Clear
+    Set logExecucao = fso.CreateTextFile(caminhoLog, True, True)
+    If Err.Number <> 0 Or logExecucao Is Nothing Then
+        MsgBox "Nao foi possivel criar o log de execucao:" & vbCrLf & caminhoLog & vbCrLf & Err.Description, vbCritical
+        Exit Sub
+    End If
+    logExecucao.WriteLine "LOG DE EXECUCAO - INVENTARIO CATDRAWING"
+    logExecucao.WriteLine "Inicio: " & CStr(Now)
+    logExecucao.WriteLine "Documento: " & doc.Name
+    logExecucao.WriteLine "Relatorio: " & caminho
+    logExecucao.WriteLine ""
+    etapa = "Criacao do relatorio TXT"
+    LogEtapa logExecucao, etapa
+    Err.Clear
+    Set arquivo = fso.CreateTextFile(caminho, True, True)
+    If Err.Number <> 0 Or arquivo Is Nothing Then
+        erro = Err.Description
+        LogErroAtual logExecucao, etapa
+        logExecucao.WriteLine "FIM: falha ao criar o relatorio."
+        logExecucao.Close
+        MsgBox "Nao foi possivel criar o relatorio:" & vbCrLf & caminho & vbCrLf & erro, vbCritical
+        Exit Sub
+    End If
+    On Error Resume Next
+
+    arquivo.WriteLine "INVENTARIO DO TEMPLATE - CATIA V5"
+    arquivo.WriteLine String(72, "=")
+    arquivo.WriteLine "Documento: " & doc.Name
+    arquivo.WriteLine "Caminho: " & doc.FullName
+    arquivo.WriteLine "Gerado em: " & CStr(Now)
+    arquivo.WriteLine ""
+    arquivo.WriteLine "COMO LOCALIZAR UM ELEMENTO EM OUTRA MACRO"
+    arquivo.WriteLine "Use o caminho de chamada informado em cada item. Os indices COM do CATIA comecam em 1."
+    arquivo.WriteLine "Exemplo: Set obj = CATIA.ActiveDocument.Sheets.Item(1).Views.Item(1).Texts.Item(1)"
+    arquivo.WriteLine "O nome e o indice ajudam a localizar o elemento; nomes podem se repetir."
+    arquivo.WriteLine String(72, "=")
+
+    totalFolhas = 0: totalVistas = 0: totalTextos = 0
+    totalDimensoes = 0: totalTabelas = 0: totalGeometrias = 0
+    Set folhas = doc.Sheets
+    arquivo.WriteLine ""
+    arquivo.WriteLine "ESTRUTURA DO DESENHO"
+    arquivo.WriteLine "Folhas encontradas: " & folhas.Count
+
+    For i = 1 To folhas.Count
+        etapa = "Leitura da folha " & i
+        LogEtapa logExecucao, etapa
+        Set folha = folhas.Item(i)
+        totalFolhas = totalFolhas + 1
+        arquivo.WriteLine ""
+        arquivo.WriteLine String(72, "-")
+        arquivo.WriteLine "FOLHA " & i & " | Nome: " & SeguroNome(folha)
+        arquivo.WriteLine "Chamada: CATIA.ActiveDocument.Sheets.Item(" & i & ")"
+        On Error Resume Next
+        arquivo.WriteLine "Escala: " & CStr(folha.Scale) & " | Orientacao: " & CStr(folha.Orientation)
+        Err.Clear
+        If Err.Number <> 0 Then LogErroAtual logExecucao, etapa
+        On Error Resume Next
+
+        etapa = "Leitura das vistas da folha " & i
+        LogEtapa logExecucao, etapa
+        Set vistas = folha.Views
+        arquivo.WriteLine "Vistas: " & vistas.Count
+        For j = 1 To vistas.Count
+            etapa = "Leitura da vista " & j & " da folha " & i
+            LogEtapa logExecucao, etapa
+            Set vista = vistas.Item(j)
+            totalVistas = totalVistas + 1
+            chamada = "CATIA.ActiveDocument.Sheets.Item(" & i & ").Views.Item(" & j & ")"
+            arquivo.WriteLine ""
+            arquivo.WriteLine "  VISTA " & j & " | Nome: " & SeguroNome(vista) & " | Tipo: " & TypeName(vista)
+            arquivo.WriteLine "  Chamada: Set obj = " & chamada
+            On Error Resume Next
+            arquivo.WriteLine "  Escala: " & CStr(vista.Scale) & " | Centro X/Y: " & CStr(vista.X) & " / " & CStr(vista.Y)
+            Err.Clear
+            If Err.Number <> 0 Then LogErroAtual logExecucao, etapa
+            On Error Resume Next
+
+            Set textos = Nothing
+            On Error Resume Next
+            Set textos = vista.Texts
+            If Err.Number = 0 And Not textos Is Nothing Then
+                arquivo.WriteLine "  TEXTOS (" & textos.Count & ")"
+                For k = 1 To textos.Count
+                    Set texto = textos.Item(k)
+                    totalTextos = totalTextos + 1
+                    idx = CStr(k)
+                    nome = SeguroNome(texto)
+                    valor = "": x = "": y = "": tipo = TypeName(texto)
+                    On Error Resume Next
+                    valor = CStr(texto.Text)
+                    If Err.Number <> 0 Then LogErroAtual logExecucao, etapa & " - leitura do conteudo do texto"
+                    Err.Clear
+                    x = CStr(texto.x)
+                    If Err.Number <> 0 Then LogErroAtual logExecucao, etapa & " - leitura da coordenada X do texto"
+                    Err.Clear
+                    y = CStr(texto.y)
+                    If Err.Number <> 0 Then LogErroAtual logExecucao, etapa & " - leitura da coordenada Y do texto"
+                    Err.Clear
+                    On Error Resume Next
+                    arquivo.WriteLine "    [Texto " & idx & "] Nome=" & nome
+                    arquivo.WriteLine "      Conteudo: " & LimparLinha(valor)
+                    arquivo.WriteLine "      Tipo: " & tipo & " | X/Y: " & x & " / " & y
+                    arquivo.WriteLine "      Chamada: Set obj = " & chamada & ".Texts.Item(" & idx & ")"
+                Next
+            Else
+                arquivo.WriteLine "  TEXTOS: indisponivel (" & Err.Description & ")"
+                LogErroAtual logExecucao, etapa & " - acesso a textos"
+            End If
+            Err.Clear
+
+            Set dimensoes = Nothing
+            Set dimensoes = vista.Dimensions
+            If Err.Number = 0 And Not dimensoes Is Nothing Then
+                arquivo.WriteLine "  DIMENSOES (" & dimensoes.Count & ")"
+                For k = 1 To dimensoes.Count
+                    Set dimensao = dimensoes.Item(k)
+                    totalDimensoes = totalDimensoes + 1
+                    nome = SeguroNome(dimensao): valor = "": tipo = TypeName(dimensao)
+                    On Error Resume Next
+                    valor = CStr(dimensao.GetValue): If Err.Number <> 0 Then Err.Clear: valor = CStr(dimensao.Value)
+                    If Err.Number <> 0 Then LogErroAtual logExecucao, etapa & " - leitura do valor da dimensao"
+                    On Error Resume Next
+                    arquivo.WriteLine "    Nome=" & nome & " | Tipo: " & tipo & " | Valor: " & LimparLinha(valor)
+                    arquivo.WriteLine "      Chamada: Set obj = " & chamada & ".Dimensions.Item(" & k & ")"
+                Next
+            Else
+                arquivo.WriteLine "  DIMENSOES: indisponivel (" & Err.Description & ")"
+                LogErroAtual logExecucao, etapa & " - acesso a dimensoes"
+            End If
+            Err.Clear
+
+            Set tabelas = Nothing
+            Set tabelas = vista.Tables
+            If Err.Number = 0 And Not tabelas Is Nothing Then
+                arquivo.WriteLine "  TABELAS (" & tabelas.Count & ")"
+                For k = 1 To tabelas.Count
+                    Set tabela = tabelas.Item(k)
+                    totalTabelas = totalTabelas + 1
+                    nome = SeguroNome(tabela): detalhe = ""
+                    On Error Resume Next
+                    detalhe = "Linhas=" & CStr(tabela.NumberOfRows) & " | Colunas=" & CStr(tabela.NumberOfColumns)
+                    If Err.Number <> 0 Then LogErroAtual logExecucao, etapa & " - leitura das dimensoes da tabela"
+                    Err.Clear
+                    On Error Resume Next
+                    arquivo.WriteLine "    Nome=" & nome & " | " & detalhe
+                    arquivo.WriteLine "      Chamada: Set obj = " & chamada & ".Tables.Item(" & k & ")"
+                    On Error Resume Next
+                    For r = 1 To tabela.NumberOfRows
+                        For c = 1 To tabela.NumberOfColumns
+                            valor = CStr(tabela.GetCellString(r, c))
+                            If Err.Number = 0 Then
+                                If Len(valor) > 0 Then arquivo.WriteLine "      Celula(" & r & "," & c & "): " & LimparLinha(valor)
+                            Else
+                                LogErroAtual logExecucao, etapa & " - leitura da celula " & r & "," & c
+                                Err.Clear
+                            End If
+                        Next
+                    Next
+                    Err.Clear
+                Next
+            Else
+                arquivo.WriteLine "  TABELAS: indisponivel (" & Err.Description & ")"
+                LogErroAtual logExecucao, etapa & " - acesso a tabelas"
+            End If
+            Err.Clear
+
+            Set geometrias = Nothing
+            Set geometrias = vista.GeometricElements
+            If Err.Number = 0 And Not geometrias Is Nothing Then
+                arquivo.WriteLine "  ELEMENTOS GEOMETRICOS (" & geometrias.Count & ")"
+                For k = 1 To geometrias.Count
+                    Set geometria = geometrias.Item(k)
+                    totalGeometrias = totalGeometrias + 1
+                    arquivo.WriteLine "    Nome=" & SeguroNome(geometria) & " | Tipo=" & TypeName(geometria)
+                    arquivo.WriteLine "      Chamada: Set obj = " & chamada & ".GeometricElements.Item(" & k & ")"
+                Next
+            Else
+                arquivo.WriteLine "  ELEMENTOS GEOMETRICOS: indisponivel (" & Err.Description & ")"
+                LogErroAtual logExecucao, etapa & " - acesso a elementos geometricos"
+            End If
+            Err.Clear
+            On Error Resume Next
+        Next
+    Next
+
+    arquivo.WriteLine ""
+    arquivo.WriteLine String(72, "=")
+    arquivo.WriteLine "RESUMO"
+    arquivo.WriteLine "Folhas: " & totalFolhas
+    arquivo.WriteLine "Vistas: " & totalVistas
+    arquivo.WriteLine "Textos: " & totalTextos
+    arquivo.WriteLine "Dimensoes: " & totalDimensoes
+    arquivo.WriteLine "Tabelas: " & totalTabelas
+    arquivo.WriteLine "Elementos geometricos: " & totalGeometrias
+    arquivo.WriteLine ""
+    arquivo.WriteLine "NOTAS"
+    arquivo.WriteLine "- Itens sem nome ou propriedade acessivel aparecem com o dado disponivel no CATIA."
+    arquivo.WriteLine "- Os elementos geometricos incluem curvas, pontos, eixos e demais objetos expostos pela vista."
+    arquivo.WriteLine "- Elementos internos de vistas geradas podem ter acesso limitado pela API de Drafting."
+    arquivo.Close
+    LogEtapa logExecucao, "Fechamento dos relatorios"
+    logExecucao.WriteLine ""
+    logExecucao.WriteLine "Resultado: concluido"
+    logExecucao.WriteLine "Folhas: " & totalFolhas & " | Vistas: " & totalVistas
+    logExecucao.WriteLine "Textos: " & totalTextos & " | Dimensoes: " & totalDimensoes
+    logExecucao.WriteLine "Tabelas: " & totalTabelas & " | Elementos geometricos: " & totalGeometrias
+    logExecucao.WriteLine "Fim: " & CStr(Now)
+    logExecucao.Close
+    MsgBox "Relatorio do template gerado:" & vbCrLf & caminho & vbCrLf & vbCrLf & _
+           "Log de execucao:" & vbCrLf & caminhoLog, vbInformation, "Relatorio do CATDrawing"
+End Sub
+
+Sub LogEtapa(arquivoLog, nomeEtapa)
+    On Error Resume Next
+    arquivoLog.WriteLine CStr(Now) & " | INICIO | " & nomeEtapa
+End Sub
+
+Sub LogErroAtual(arquivoLog, contexto)
+    Dim numero, descricao
+    On Error Resume Next
+    numero = Err.Number
+    descricao = Err.Description
+    If numero <> 0 Then
+        arquivoLog.WriteLine CStr(Now) & " | ERRO | Etapa: " & contexto & _
+                             " | Codigo: " & CStr(numero) & " | Detalhe: " & descricao
+    End If
+    Err.Clear
+End Sub
+
+Function SeguroNome(obj)
+    On Error Resume Next
+    SeguroNome = CStr(obj.Name)
+    If Err.Number <> 0 Then SeguroNome = "(nome indisponivel)"
+    If Len(SeguroNome) = 0 Then SeguroNome = "(sem nome)"
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+Function LimparLinha(valor)
+    Dim s
+    s = CStr(valor)
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    LimparLinha = s
+End Function
+
+Function IndiceDaColecao(colecao, alvo)
+    Dim k, item
+    IndiceDaColecao = "?"
+    On Error Resume Next
+    For k = 1 To colecao.Count
+        Set item = colecao.Item(k)
+        If item Is alvo Then
+            IndiceDaColecao = CStr(k)
+            Exit For
+        End If
+    Next
+    Err.Clear
+    On Error GoTo 0
+End Function
