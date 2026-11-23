@@ -56,10 +56,12 @@ public partial class MainWindow : Window
 
     private void ConfigurarCampos_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SettingsWindow(_settings.UseCustomFields, _settings.CustomFieldNames) { Owner = this };
+        var dialog = new SettingsWindow(_settings.SelectedProfile, _settings.Profiles, DefaultFieldNames) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        _settings.UseCustomFields = dialog.UseCustomFields;
-        _settings.CustomFieldNames = dialog.FieldNames;
+        _settings.SelectedProfile = dialog.SelectedProfile;
+        _settings.Profiles = dialog.Profiles;
+        _settings.UseCustomFields = dialog.SelectedProfile != SettingsWindow.DefaultProfileName;
+        _settings.CustomFieldNames = dialog.SelectedFieldNames;
         SaveSettings();
     }
 
@@ -106,8 +108,18 @@ public partial class MainWindow : Window
     {
         try { if (File.Exists(SettingsPath)) _settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings(); }
         catch { _settings = new AppSettings(); }
-        if (_settings.CustomFieldNames is null || _settings.CustomFieldNames.Length != DefaultFieldNames.Length)
-            _settings.CustomFieldNames = (string[])DefaultFieldNames.Clone();
+        _settings.Profiles ??= [];
+        foreach (var profile in _settings.Profiles)
+            if (profile.FieldNames is null || profile.FieldNames.Length != DefaultFieldNames.Length) profile.FieldNames = (string[])DefaultFieldNames.Clone();
+        if (_settings.Profiles.Count == 0 && _settings.UseCustomFields && _settings.CustomFieldNames?.Length == DefaultFieldNames.Length)
+        {
+            _settings.Profiles.Add(new FieldProfile("Personalizado", _settings.CustomFieldNames));
+            _settings.SelectedProfile = "Personalizado";
+        }
+        if (string.IsNullOrWhiteSpace(_settings.SelectedProfile) ||
+            (_settings.SelectedProfile != SettingsWindow.DefaultProfileName && !_settings.Profiles.Any(p => p.Name == _settings.SelectedProfile)))
+            _settings.SelectedProfile = SettingsWindow.DefaultProfileName;
+        _settings.CustomFieldNames ??= (string[])DefaultFieldNames.Clone();
     }
 
     private void SaveSettings()
@@ -120,9 +132,12 @@ public partial class MainWindow : Window
         catch (Exception ex) { Resultado.Text = "Não foi possível salvar as configurações: " + ex.Message; }
     }
 
-    private string[] GetCurrentFieldNames() => _settings.UseCustomFields
-        ? _settings.CustomFieldNames.Select(n => n.Trim()).ToArray()
-        : (string[])DefaultFieldNames.Clone();
+    private string[] GetCurrentFieldNames()
+    {
+        if (_settings.SelectedProfile == SettingsWindow.DefaultProfileName) return (string[])DefaultFieldNames.Clone();
+        return _settings.Profiles.FirstOrDefault(p => p.Name == _settings.SelectedProfile)?.FieldNames.Select(n => n.Trim()).ToArray()
+            ?? (string[])DefaultFieldNames.Clone();
+    }
 
     private async void Atualizar_Click(object sender, RoutedEventArgs e)
     {
@@ -209,7 +224,7 @@ public partial class MainWindow : Window
             Warn("Preencha pelo menos uma informação para atualizar.");
             return false;
         }
-        if (_settings.UseCustomFields)
+        if (_settings.SelectedProfile != SettingsWindow.DefaultProfileName)
         {
             var names = GetCurrentFieldNames();
             if (names.Any(string.IsNullOrWhiteSpace))
@@ -372,7 +387,17 @@ public partial class MainWindow : Window
     private sealed class AppSettings
     {
         public AppSettings() { }
+        public string SelectedProfile { get; set; } = SettingsWindow.DefaultProfileName;
+        public List<FieldProfile> Profiles { get; set; } = [];
         public bool UseCustomFields { get; set; }
         public string[] CustomFieldNames { get; set; } = (string[])DefaultFieldNames.Clone();
     }
+}
+
+public sealed class FieldProfile
+{
+    public FieldProfile() { }
+    public FieldProfile(string name, string[] fieldNames) { Name = name; FieldNames = (string[])fieldNames.Clone(); }
+    public string Name { get; set; } = "";
+    public string[] FieldNames { get; set; } = [];
 }

@@ -8,7 +8,8 @@ Option Explicit
 ' CHAPA COM DOBRA: PROCESSO = LASER + DOBRA
 ' DIAM_ESP: valor de Thickness do Sheet Metal Parameter,
 '           preservando a unidade apresentada pelo CATIA.
-' SOLIDO CONVENCIONAL: nenhuma propriedade e alterada.
+' PECA REDONDA: identificada por recursos de revolucao (Shaft/Revolution).
+' PECA BLOCO: demais solidos, com dimensoes globais ordenadas.
 '
 ' Gravacao em Product.UserRefProperties como User Property String.
 ' A identificacao geometrica e a mesma da macro de exportacao.
@@ -231,6 +232,14 @@ Sub ProcessarPeca(caminho)
     Dim propriedadeDXFGravada
     Dim espessuraChapa
     Dim espessuraEncontrada
+    Dim redonda
+    Dim diametroExterno
+    Dim comprimentoPeca
+    Dim dimensoes(2)
+    Dim medidasEncontradas
+    Dim valorComp
+    Dim valorLarg
+    Dim valorAlt
 
     caminho = Trim(caminho)
     If caminho = "" Then Exit Sub
@@ -269,15 +278,45 @@ Sub ProcessarPeca(caminho)
 
     chapa = False
     dobra = False
-    IdentificarRecursos docPeca.Part, chapa, dobra
+    redonda = False
+    IdentificarRecursos docPeca.Part, chapa, dobra, redonda
 
     EscreverLog "IDENTIFICACAO DE CHAPA: " & CStr(chapa)
     EscreverLog "IDENTIFICACAO DE DOBRA: " & CStr(dobra)
 
     If Not chapa Then
-        totalSolidos = totalSolidos + 1
-        EscreverLog "CLASSIFICACAO: SOLIDO CONVENCIONAL."
-        EscreverLog "NENHUMA PROPRIEDADE FOI CRIADA OU ALTERADA."
+        medidasEncontradas = ObterDimensoesGlobais(docPeca, dimensoes)
+        If Not medidasEncontradas Then
+            EscreverLog "ERRO: NAO FOI POSSIVEL MEDIR A PECA SOLIDA."
+            totalErros = totalErros + 1
+            FecharDocumentoSeNecessario docPeca, documentoJaAberto
+            Exit Sub
+        End If
+
+        If redonda Then
+            EscreverLog "CLASSIFICACAO: REDONDA (RECURSO DE REVOLUCAO)."
+            diametroExterno = dimensoes(1)
+            comprimentoPeca = dimensoes(2)
+            propriedadeDiamEspGravada = GravarPropriedadeTexto(docPeca, "DIAM_ESP", FormatarNumero(diametroExterno, 2))
+            propriedadeProcessosGravada = GravarPropriedadeTexto(docPeca, "COMP", FormatarNumero(comprimentoPeca, 1))
+        Else
+            EscreverLog "CLASSIFICACAO: BLOCO."
+            ' Dimensoes retornadas em ordem crescente: COMP maior, ALT menor,
+            ' LARG a medida restante, conforme regra solicitada.
+            propriedadeProcessosGravada = GravarPropriedadeTexto(docPeca, "COMP", FormatarNumero(dimensoes(2), 1))
+            propriedadeDiamEspGravada = GravarPropriedadeTexto(docPeca, "ALT", FormatarNumero(dimensoes(0), 1))
+            propriedadeDXFGravada = GravarPropriedadeTexto(docPeca, "LARG", FormatarNumero(dimensoes(1), 1))
+        End If
+
+        If propriedadeProcessosGravada Or propriedadeDiamEspGravada Or propriedadeDXFGravada Then
+            Err.Clear
+            docPeca.Save
+            If Err.Number <> 0 Then
+                EscreverLog "ERRO AO SALVAR CATPART: " & Err.Description
+                totalErros = totalErros + 1
+                Err.Clear
+            End If
+        End If
         FecharDocumentoSeNecessario docPeca, documentoJaAberto
         Exit Sub
     End If
@@ -302,9 +341,19 @@ Sub ProcessarPeca(caminho)
 
     If espessuraEncontrada Then
         EscreverLog "ESPESSURA CAPTURADA NO SHEET METAL PARAMETER: " & espessuraChapa
-        propriedadeDiamEspGravada = GravarPropriedadeTexto(docPeca, "DIAM_ESP", espessuraChapa)
+        propriedadeDiamEspGravada = GravarPropriedadeTexto(docPeca, "DIAM_ESP", FormatarNumero(ExtrairNumero(espessuraChapa), 2))
     Else
         EscreverLog "ERRO: NAO FOI POSSIVEL CAPTURAR O PARAMETRO THICKNESS."
+        totalErros = totalErros + 1
+    End If
+
+    ' As medidas COMP/LARG da chapa seguem a vista planificada 1:1:
+    ' dimensao menor em LARG e maior em COMP.
+    If ObterDimensoesPlanificadas(docPeca, valorComp, valorLarg) Then
+        GravarPropriedadeTexto docPeca, "COMP", FormatarNumero(valorComp, 1)
+        GravarPropriedadeTexto docPeca, "LARG", FormatarNumero(valorLarg, 1)
+    Else
+        EscreverLog "ERRO: NAO FOI POSSIVEL MEDIR A VISTA PLANIFICADA."
         totalErros = totalErros + 1
     End If
 
@@ -555,7 +604,7 @@ End Function
 ' recursos geometricos do CATIA para reconhecer chapa/dobra.
 ' ============================================================
 
-Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
+Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra, ByRef possuiRevolucao)
 
     On Error Resume Next
 
@@ -566,6 +615,7 @@ Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
 
     possuiChapa = False
     possuiDobra = False
+    possuiRevolucao = False
 
     Set parametros = parte.Parameters
 
@@ -575,6 +625,11 @@ Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
 
         If Err.Number = 0 Then
             nome = LCase(parametro.Name)
+
+            ' Shaft e Revolution sao recursos de revolucao de solidos no CATIA.
+            If InStr(nome, "shaft") > 0 Or InStr(nome, "revolution") > 0 Then
+                possuiRevolucao = True
+            End If
 
             If InStr(nome, "sheet metal parameter.1\thickness") > 0 Then
                 possuiChapa = True
@@ -599,6 +654,101 @@ Sub IdentificarRecursos(parte, ByRef possuiChapa, ByRef possuiDobra)
     Next
 
 End Sub
+
+' Mede a caixa delimitadora do MainBody e ordena as dimensoes da menor
+' para a maior. A classificacao de redonda continua sendo feita pelo recurso
+' Shaft/Revolution, nunca pela igualdade entre lados da caixa.
+Function ObterDimensoesGlobais(docPeca, ByRef dimensoes)
+    On Error Resume Next
+    Dim spa, body, refBody, medicao, minimo(2), maximo(2), valores(2), i, j, tmp
+    ObterDimensoesGlobais = False
+    Set spa = docPeca.GetWorkbench("SPAWorkbench")
+    Set body = docPeca.Part.MainBody
+    Set refBody = docPeca.Part.CreateReferenceFromObject(body)
+    Set medicao = spa.GetMeasurable(refBody)
+    medicao.GetBoundingBox minimo, maximo
+    If Err.Number <> 0 Then
+        EscreverLog "ERRO AO OBTER BOUNDING BOX: " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+    For i = 0 To 2
+        valores(i) = Abs(CDbl(maximo(i)) - CDbl(minimo(i)))
+    Next
+    For i = 0 To 1
+        For j = i + 1 To 2
+            If valores(i) > valores(j) Then
+                tmp = valores(i): valores(i) = valores(j): valores(j) = tmp
+            End If
+        Next
+    Next
+    For i = 0 To 2
+        dimensoes(i) = valores(i)
+    Next
+    ObterDimensoesGlobais = True
+End Function
+
+' Obtem os dois lados do contorno da vista planificada em escala 1:1,
+' usando o primeiro sketch e o mesmo DefineUnfoldedView da macro DXF.
+Function ObterDimensoesPlanificadas(docPeca, ByRef comprimento, ByRef largura)
+    On Error Resume Next
+    Dim body, sketches, sketch, eixos(8), h, v, dot, i, docDesenho, vista
+    Dim comportamento, caixa(3), folha
+    ObterDimensoesPlanificadas = False
+    Set body = docPeca.Part.MainBody
+    Set sketches = body.Sketches
+    If sketches Is Nothing Or sketches.Count = 0 Then Exit Function
+    Set sketch = sketches.Item(1)
+    sketch.GetAbsoluteAxisData eixos
+    If Err.Number <> 0 Then Err.Clear: Exit Function
+    h = Sqr(CDbl(eixos(3))^2 + CDbl(eixos(4))^2 + CDbl(eixos(5))^2)
+    If h < 0.0000001 Then Exit Function
+    For i = 3 To 5: eixos(i) = CDbl(eixos(i)) / h: Next
+    dot = CDbl(eixos(3))*CDbl(eixos(6)) + CDbl(eixos(4))*CDbl(eixos(7)) + CDbl(eixos(5))*CDbl(eixos(8))
+    For i = 0 To 2: eixos(i+6) = CDbl(eixos(i+6)) - dot*CDbl(eixos(i+3)): Next
+    v = Sqr(CDbl(eixos(6))^2 + CDbl(eixos(7))^2 + CDbl(eixos(8))^2)
+    If v < 0.0000001 Then Exit Function
+    For i = 6 To 8: eixos(i) = CDbl(eixos(i)) / v: Next
+    Set docDesenho = CATIA.Documents.Add("Drawing")
+    Set folha = docDesenho.Sheets.ActiveSheet
+    Set vista = folha.Views.Add("Vista Planificada")
+    Set comportamento = vista.GenerativeBehavior
+    comportamento.Document = docPeca
+    vista.Scale = 1
+    comportamento.DefineUnfoldedView eixos(3), eixos(4), eixos(5), eixos(6), eixos(7), eixos(8)
+    vista.x = 150: vista.y = 150
+    comportamento.ForceUpdate
+    docDesenho.Update
+    vista.Size caixa
+    If Err.Number <> 0 Then
+        Err.Clear: docDesenho.Close: Exit Function
+    End If
+    comprimento = Abs(CDbl(caixa(1)) - CDbl(caixa(0)))
+    largura = Abs(CDbl(caixa(3)) - CDbl(caixa(2)))
+    docDesenho.Close
+    If comprimento <= 0 Or largura <= 0 Then Exit Function
+    If comprimento < largura Then
+        h = comprimento: comprimento = largura: largura = h
+    End If
+    ObterDimensoesPlanificadas = True
+End Function
+
+Function ExtrairNumero(texto)
+    Dim i, caractere, resultado
+    resultado = ""
+    For i = 1 To Len(CStr(texto))
+        caractere = Mid(CStr(texto), i, 1)
+        If (caractere >= "0" And caractere <= "9") Or caractere = "." Or caractere = "," Or caractere = "-" Then
+            resultado = resultado & caractere
+        End If
+    Next
+    resultado = Replace(resultado, ".", ",")
+    ExtrairNumero = CDbl(resultado)
+End Function
+
+Function FormatarNumero(valor, casas)
+    FormatarNumero = Replace(FormatNumber(CDbl(valor), casas, -1, 0, 0), ".", ",")
+End Function
 
 
 ' ============================================================
